@@ -1,0 +1,33 @@
+Now you have to crate the workflow for build domain 
+
+where you i have to connect with github(github,azure devops github and more) and cloud platform (Azure ,amazon , gcp)
+ cureently we are focusing on the azure devops github and Azure as cloud platform but in the future we have plan to connect with the other platform as will son do coding according to it
+ 
+ what the information you want you will get throw the api, in the input you get paltform and secaret requied for access this plaform  useing this you can access plaforms of github and cloud using therir api
+ you workflow will be like node1(level 1), node2 (level 2) , there will be like node will incraes
+ 
+ if it passs the level 1 then you will called level 2 othere wise you will stop you task there and retnrn  matuirty of  that level 
+ 
+ build domain 
+	level 1:
+	     1)Defined build process :- check wther pipeline is exist or not
+		    Show your build pipeline configuration (e.g., Jenkinsfile, GitHub Actions workflow) and an exemplary job (build + test + security scan)
+	level 2:
+		1) Pinning of artifacts :-
+				1.Signing of containers :- Container technology automatically creates a hash for images, which can be used.
+				2.Immutable images:-Immutable images are an other way, e.g. by using a registry, which doesn't allow overriding of images.
+		2)SBOM of components :-
+				1.Trivy   2.Syft 
+	level 3:
+		1)Signing of code :-
+				1.Signing of commits:-Signing of commits in git
+				2.Enforcement of commit signing:-Usage of branch protection rules
+	level 4:
+	level 5:
+		1)Signing of artifacts (Digitally signing artifacts for all steps during the build and especially docker images, helps to ensure their integrity and authenticity.)
+			1.Docker Content Trust
+			2.in-toto
+
+As the result you will be retnrn the resuit i want the level of the matuirty then score also reson why the current matuirty given what are the how we can iccrase the score where is eactly laking
+if matuirty level is 1 then score is (0-1)
+if matuirty level is 2 then score is (1-2)  follow for more 

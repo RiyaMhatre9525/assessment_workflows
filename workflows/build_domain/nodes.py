@@ -184,7 +184,8 @@ async def collect_platform_data_node(state: dict) -> dict:
 
     # Collect data
     try:
-        platform_data: PlatformData = await connector.collect(repository)
+        branch: str = state.get("branch", "")
+        platform_data: PlatformData = await connector.collect(repository, branch=branch)
         logger.info(
             "Collected: %d pipelines, %d artifacts from %s",
             len(platform_data.pipelines),

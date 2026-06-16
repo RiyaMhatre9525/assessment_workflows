@@ -14,6 +14,7 @@ Content-Type: application/json
   "input_data": {
     "platform_type": "github",
     "repository": "myorg/myrepo",
+    "branch": "main",
     "credentials": {
       "token": "<github-pat>"
     }
@@ -27,6 +28,7 @@ For Azure DevOps:
   "input_data": {
     "platform_type": "azure_devops",
     "repository": "MyProject/MyRepo",
+    "branch": "main",
     "credentials": {
       "pat": "<ado-pat>",
       "organization": "mycompany",

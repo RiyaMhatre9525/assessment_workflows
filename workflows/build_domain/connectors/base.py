@@ -97,12 +97,13 @@ class BasePlatformConnector(ABC):
         self._api_call_log.append(message)
 
     @abstractmethod
-    async def collect(self, repository: str) -> PlatformData:
+    async def collect(self, repository: str, branch: str = "") -> PlatformData:
         """
         Collect all platform data needed by the assessment engine.
 
         Args:
             repository: Identifier for the target repo (e.g. "owner/repo").
+            branch: Optional branch name to analyze (defaults to default branch).
 
         Returns:
             PlatformData with all gathered information and the full API log.

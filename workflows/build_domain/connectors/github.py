@@ -72,17 +72,17 @@ class GitHubConnector(BasePlatformConnector):
             logger.error("GitHub health check error: %s", exc)
             return False
 
-    async def collect(self, repository: str) -> PlatformData:
+    async def collect(self, repository: str, branch: str = "") -> PlatformData:
         """
         Collect all assessment data for `repository` (format: "owner/repo").
         """
-        logger.info("GitHubConnector.collect: %s", repository)
+        logger.info("GitHubConnector.collect: %s (branch: %s)", repository, branch)
         data = PlatformData(platform_type="github", repository=repository)
 
         async with httpx.AsyncClient(headers=self._headers, timeout=30) as client:
-            data.pipelines = await self._collect_pipelines(client, repository)
+            data.pipelines = await self._collect_pipelines(client, repository, branch)
             data.artifacts = await self._collect_artifacts(client, repository)
-            data.commit_signing = await self._collect_commit_signing(client, repository)
+            data.commit_signing = await self._collect_commit_signing(client, repository, branch)
             data.artifact_signing = self._detect_artifact_signing(data.pipelines)
 
         data.api_call_log = list(self._api_call_log)
@@ -93,10 +93,12 @@ class GitHubConnector(BasePlatformConnector):
     # ------------------------------------------------------------------
 
     async def _collect_pipelines(
-        self, client: httpx.AsyncClient, repo: str
+        self, client: httpx.AsyncClient, repo: str, branch: str = ""
     ) -> list[PipelineInfo]:
         """List all GitHub Actions workflow files and parse their jobs."""
         url = f"{_GITHUB_API}/repos/{repo}/contents/.github/workflows"
+        if branch:
+            url += f"?ref={branch}"
         self._log(f"GET {url}")
 
         try:
@@ -112,16 +114,18 @@ class GitHubConnector(BasePlatformConnector):
         for entry in resp.json():
             if not entry.get("name", "").endswith((".yml", ".yaml")):
                 continue
-            pipeline = await self._parse_workflow_file(client, repo, entry)
+            pipeline = await self._parse_workflow_file(client, repo, entry, branch)
             pipelines.append(pipeline)
 
         return pipelines
 
     async def _parse_workflow_file(
-        self, client: httpx.AsyncClient, repo: str, entry: dict
+        self, client: httpx.AsyncClient, repo: str, entry: dict, branch: str = ""
     ) -> PipelineInfo:
         """Download and parse a single workflow YAML file."""
         url = f"{_GITHUB_API}/repos/{repo}/contents/{entry['path']}"
+        if branch:
+            url += f"?ref={branch}"
         self._log(f"GET {url}")
 
         pipeline = PipelineInfo(name=entry["name"], path=entry["path"])
@@ -212,13 +216,15 @@ class GitHubConnector(BasePlatformConnector):
     # ------------------------------------------------------------------
 
     async def _collect_commit_signing(
-        self, client: httpx.AsyncClient, repo: str
+        self, client: httpx.AsyncClient, repo: str, branch: str = ""
     ) -> CommitSigningInfo:
         """Check recent commits for GPG/SSH signatures and branch-protection rules."""
         info = CommitSigningInfo()
 
         # Sample last 20 commits
         url = f"{_GITHUB_API}/repos/{repo}/commits?per_page=20"
+        if branch:
+            url += f"&sha={branch}"
         self._log(f"GET {url}")
         try:
             resp = await client.get(url)
@@ -237,14 +243,15 @@ class GitHubConnector(BasePlatformConnector):
         except Exception as exc:
             logger.error("Error fetching commits: %s", exc)
 
-        # Check default branch protection
+        # Check branch protection for the specific branch or fall back to default branch
         branch_url = f"{_GITHUB_API}/repos/{repo}"
         self._log(f"GET {branch_url}")
         try:
             resp = await client.get(branch_url)
             if resp.status_code == 200:
                 default_branch = resp.json().get("default_branch", "main")
-                bp_url = f"{_GITHUB_API}/repos/{repo}/branches/{default_branch}/protection"
+                target_branch = branch if branch else default_branch
+                bp_url = f"{_GITHUB_API}/repos/{repo}/branches/{target_branch}/protection"
                 self._log(f"GET {bp_url}")
                 bp_resp = await client.get(bp_url)
                 if bp_resp.status_code == 200:
@@ -253,7 +260,7 @@ class GitHubConnector(BasePlatformConnector):
                     # GitHub exposes required_signatures as a sub-resource
                     sig_url = (
                         f"{_GITHUB_API}/repos/{repo}/branches/"
-                        f"{default_branch}/protection/required_signatures"
+                        f"{target_branch}/protection/required_signatures"
                     )
                     self._log(f"GET {sig_url}")
                     sig_resp = await client.get(sig_url)

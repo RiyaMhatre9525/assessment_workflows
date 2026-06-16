@@ -54,6 +54,7 @@ class PipelineMaturityState(TypedDict, total=False):
     platform_type: str        # "github" | "azure_devops" | …
     credentials: dict         # platform-specific auth
     repository: str           # "owner/repo" or "project/repo"
+    branch: str               # branch name to check (optional)
 
     # --- Intermediate ---
     platform_data: Any        # PlatformData object from connector
@@ -115,7 +116,7 @@ class PipelineMaturityWorkflow(BaseWorkflow):
 
         # Register nodes
         graph.add_node("collect_platform_data", collect_platform_data_node)
-        # graph.add_node("level1", level1_node)
+        graph.add_node("level1", level1_node)
         graph.add_node("level2", level2_node)
         graph.add_node("level3", level3_node)
         graph.add_node("level4", level4_node)
@@ -130,7 +131,7 @@ class PipelineMaturityWorkflow(BaseWorkflow):
 
         # Each level: stop if failed, else advance
         for current, next_level in [
-            # ("level1", "level2"),
+            ("level1", "level2"),
             ("level2", "level3"),
             ("level3", "level4"),
             ("level4", "level5"),
@@ -168,6 +169,7 @@ class PipelineMaturityWorkflow(BaseWorkflow):
         platform_type = input_data.get("platform_type", "").strip()
         credentials = input_data.get("credentials")
         repository = input_data.get("repository", "").strip()
+        branch = input_data.get("branch", "").strip()
 
         if not platform_type:
             raise ValueError("'platform_type' is required (e.g. 'github', 'azure_devops')")
@@ -177,13 +179,14 @@ class PipelineMaturityWorkflow(BaseWorkflow):
             raise ValueError("'repository' is required (e.g. 'owner/repo')")
 
         logger.info(
-            "initialize_state: platform=%s repository=%s", platform_type, repository
+            "initialize_state: platform=%s repository=%s branch=%s", platform_type, repository, branch
         )
 
         return {
             "platform_type": platform_type,
             "credentials": credentials,
             "repository": repository,
+            "branch": branch,
             "level_results": {},
             "current_level": 0,
             "stop_assessment": False,

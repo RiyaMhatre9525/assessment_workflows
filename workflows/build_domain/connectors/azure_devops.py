@@ -75,26 +75,27 @@ class AzureDevOpsConnector(BasePlatformConnector):
             logger.error("AzureDevOps health check error: %s", exc)
             return False
 
-    async def collect(self, repository: str) -> PlatformData:
+    async def collect(self, repository: str, branch: str = "") -> PlatformData:
         """
         Collect all assessment data.
 
         Args:
             repository: Format "project/repo" or just "repo" (project from credentials).
+            branch: Optional branch name to analyze.
         """
         parts = repository.split("/", 1)
         project = parts[0] if len(parts) == 2 else (self._project or repository)
         repo_name = parts[1] if len(parts) == 2 else repository
 
-        logger.info("AzureDevOpsConnector.collect: org=%s project=%s repo=%s",
-                    self._org, project, repo_name)
+        logger.info("AzureDevOpsConnector.collect: org=%s project=%s repo=%s (branch: %s)",
+                    self._org, project, repo_name, branch)
 
         data = PlatformData(platform_type="azure_devops", repository=repository)
 
         async with httpx.AsyncClient(headers=self._headers, timeout=30) as client:
-            data.pipelines = await self._collect_pipelines(client, project)
+            data.pipelines = await self._collect_pipelines(client, project, branch)
             data.artifacts = await self._collect_artifacts(client, project)
-            data.commit_signing = await self._collect_commit_signing(client, project, repo_name)
+            data.commit_signing = await self._collect_commit_signing(client, project, repo_name, branch)
             data.artifact_signing = self._detect_artifact_signing(data.pipelines)
 
         data.api_call_log = list(self._api_call_log)
@@ -105,7 +106,7 @@ class AzureDevOpsConnector(BasePlatformConnector):
     # ------------------------------------------------------------------
 
     async def _collect_pipelines(
-        self, client: httpx.AsyncClient, project: str
+        self, client: httpx.AsyncClient, project: str, branch: str = ""
     ) -> list[PipelineInfo]:
         """List Azure Pipelines and fetch their YAML definitions."""
         url = f"{self._base}/{project}/_apis/pipelines?api-version=7.1"
@@ -119,7 +120,7 @@ class AzureDevOpsConnector(BasePlatformConnector):
                 return []
 
             for item in resp.json().get("value", []):
-                pipeline = await self._fetch_pipeline_yaml(client, project, item)
+                pipeline = await self._fetch_pipeline_yaml(client, project, item, branch)
                 pipelines.append(pipeline)
         except Exception as exc:
             logger.error("Error fetching pipelines: %s", exc)
@@ -127,7 +128,7 @@ class AzureDevOpsConnector(BasePlatformConnector):
         return pipelines
 
     async def _fetch_pipeline_yaml(
-        self, client: httpx.AsyncClient, project: str, item: dict
+        self, client: httpx.AsyncClient, project: str, item: dict, branch: str = ""
     ) -> PipelineInfo:
         """Fetch the YAML definition of a single pipeline."""
         pid = item.get("id")
@@ -146,7 +147,7 @@ class AzureDevOpsConnector(BasePlatformConnector):
 
                 # Attempt to download the YAML file
                 if yaml_path and repo_info:
-                    raw = await self._download_file(client, project, repo_info, yaml_path)
+                    raw = await self._download_file(client, project, repo_info, yaml_path, branch)
                     if raw:
                         pipeline.raw_content = raw
                         pipeline.has_build_job = bool(
@@ -172,6 +173,7 @@ class AzureDevOpsConnector(BasePlatformConnector):
         project: str,
         repo_info: dict,
         path: str,
+        branch: str = "",
     ) -> str:
         """Download a file from Azure Repos."""
         repo_id = repo_info.get("id", "")
@@ -181,6 +183,8 @@ class AzureDevOpsConnector(BasePlatformConnector):
             f"{self._base}/{project}/_apis/git/repositories/{repo_id}/items"
             f"?path={path}&api-version=7.1"
         )
+        if branch:
+            url += f"&versionDescriptor.version={branch}"
         self._log(f"GET {url}")
         try:
             resp = await client.get(url)
@@ -237,6 +241,7 @@ class AzureDevOpsConnector(BasePlatformConnector):
         client: httpx.AsyncClient,
         project: str,
         repo_name: str,
+        branch: str = "",
     ) -> CommitSigningInfo:
         """Check commit verification and branch policies in Azure Repos."""
         info = CommitSigningInfo()
@@ -246,6 +251,8 @@ class AzureDevOpsConnector(BasePlatformConnector):
             f"{self._base}/{project}/_apis/git/repositories/{repo_name}"
             f"/commits?$top=20&api-version=7.1"
         )
+        if branch:
+            url += f"&searchCriteria.itemVersion.version={branch}"
         self._log(f"GET {url}")
         try:
             resp = await client.get(url)

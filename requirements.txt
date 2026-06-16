@@ -1,0 +1,28 @@
+# =============================================================================
+# Python Dependencies — DevSecOps Assessment Backend
+# =============================================================================
+#
+# All versions are pinned to ensure reproducible builds.
+# Run:  pip install -r requirements.txt
+#
+# To upgrade, use:
+#   pip install --upgrade <package>
+#   pip freeze | grep <package>   # then update the version below
+#
+# =============================================================================
+
+# ── Web framework ────────────────────────────────────────────────────
+fastapi          # ASGI web framework with automatic OpenAPI docs
+uvicorn           # Lightning-fast ASGI server (uses uvloop)
+
+# ── LLM / Agent framework ───────────────────────────────────────────
+langchain          # Orchestration framework for LLM applications
+langchain-openai   # OpenAI integration (ChatOpenAI, embeddings)
+langgraph         # Stateful graph-based workflow execution
+
+# ── Data validation ──────────────────────────────────────────────────
+pydantic           # Data validation using Python type annotations
+pydantic-settings  # Settings management with .env file support
+
+# ── Utilities ────────────────────────────────────────────────────────
+python-dotenv      # Load .env files into os.environ

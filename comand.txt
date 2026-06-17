@@ -4,3 +4,15 @@ pip install -r requirements.txt
 # Set OPENAI_API_KEY in .env
 python main.py
 # → Swagger docs at http://localhost:8000/docs
+
+
+docker build -t devsecops-assessment-backend .
+
+docker run -d -p 8000:8000 --env-file .env --name devsecops-assessment devsecops-assessment-backend
+
+# Check running container status
+docker ps
+
+# Read server startup logs
+docker logs devsecops-assessment
+

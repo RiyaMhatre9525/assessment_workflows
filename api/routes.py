@@ -5,7 +5,7 @@ Exposes endpoints for listing and triggering workflows.
 import logging
 from datetime import datetime
 from typing import Dict
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, HTTPException, BackgroundTasks
 from core.logger import get_logger
 from api.models import WorkflowRequest, WorkflowResponse
 from workflows.test_search.graph import TestSearchWorkflow
@@ -23,19 +23,19 @@ WORKFLOWS: Dict[str, object] = {
 router = APIRouter(prefix="/api", tags=["Workflows"])
 
 @router.post("/execute/{workflow_name}", response_model=WorkflowResponse)
-async def execute_workflow(workflow_name: str, request: WorkflowRequest) -> WorkflowResponse:
-    """Triggers the specified workflow using the provided data payload."""
+async def execute_workflow(
+    workflow_name: str,
+    request: WorkflowRequest,
+    background_tasks: BackgroundTasks
+) -> WorkflowResponse:
+    """Triggers the specified workflow asynchronously in the background."""
     workflow = WORKFLOWS.get(workflow_name)
     if not workflow:
         raise HTTPException(status_code=404, detail="Workflow not found")
 
     try:
-        result = await workflow.run(request.input_data)
-        return WorkflowResponse(
-            workflow=workflow_name,
-            status="success",
-            result=result,
-        )
+        # Pre-validate inputs synchronously to catch bad input early
+        workflow.initialize_state(request.input_data)
     except ValueError as ve:
         return WorkflowResponse(
             workflow=workflow_name,
@@ -43,8 +43,23 @@ async def execute_workflow(workflow_name: str, request: WorkflowRequest) -> Work
             error=str(ve),
         )
     except Exception as exc:
-        logger.error("Workflow error", exc_info=True)
-        raise HTTPException(status_code=500, detail=str(exc))
+        logger.error("Validation error", exc_info=True)
+        return WorkflowResponse(
+            workflow=workflow_name,
+            status="error",
+            error=str(exc),
+        )
+
+    # Queue the workflow run in the background
+    background_tasks.add_task(workflow.run, request.input_data)
+    
+    logger.info("Scheduled workflow execution for '%s' in the background", workflow_name)
+
+    return WorkflowResponse(
+        workflow=workflow_name,
+        status="in_progress",
+        result=None,
+    )
 
 @router.get("/workflows")
 async def list_workflows() -> dict:

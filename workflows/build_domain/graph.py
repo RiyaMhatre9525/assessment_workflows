@@ -106,6 +106,7 @@ class PipelineMaturityWorkflow(BaseWorkflow):
                 "platforms using a progressive, fail-fast 5-level model."
             ),
         )
+        self.domain_name = "BUILD"
 
     # ------------------------------------------------------------------
     # BaseWorkflow abstract methods

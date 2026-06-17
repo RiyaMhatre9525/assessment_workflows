@@ -125,24 +125,91 @@ class BaseWorkflow(ABC):
         """Pull final_result from final_state, return it."""
 
     async def run(self, input_data: dict) -> dict:     # DO NOT override
-        state = self.initialize_state(input_data)
-        final = await self.graph.ainvoke(state)
-        return self.extract_result(final)
+        start_time = time.time()
+        try:
+            state = self.initialize_state(input_data)
+            if self.graph is None:
+                raise RuntimeError("Graph not compiled.")
+            
+            final_state = await self.graph.ainvoke(state)
+            result = self.extract_result(final_state)
+            
+            elapsed = time.time() - start_time
+            self.logger.info("Workflow '%s' completed in %.2fs", self.name, elapsed)
+            return result
+        except Exception as exc:
+            self.logger.error("Workflow '%s' failed", self.name, exc_info=True)
+            
+            # Persist FAILED state to database if assessment_id is available
+            assessment_id = None
+            if 'state' in locals() and isinstance(state, dict):
+                assessment_id = state.get("assessment_id")
+            if not assessment_id and isinstance(input_data, dict):
+                assessment_id = input_data.get("assessment_id")
+
+            if assessment_id:
+                try:
+                    from core.database import SessionLocal
+                    from core.repositories.assessment_result_repository import AssessmentResultRepository
+                    db = SessionLocal()
+                    try:
+                        domain_name = getattr(self, "domain_name", "UNKNOWN")
+                        AssessmentResultRepository.insert_assessment_result(
+                            db=db,
+                            assessment_id=assessment_id,
+                            status="FAILED",
+                            domain_name=domain_name,
+                            domain_score=0.0,
+                            reasoning=f"Workflow terminated due to error: {str(exc)}",
+                            improvement_recommendations=[],
+                            additional_info={"error": str(exc)}
+                        )
+                    finally:
+                        db.close()
+                except Exception as db_exc:
+                    self.logger.error("Failed to save FAILED status to database: %s", db_exc)
+            raise
 ```
 
-### api/routes.py (WORKFLOWS registry)
+### api/routes.py (WORKFLOWS registry & Async Invocation)
 
 ```python
-# Current contents (add new workflow here):
+from fastapi import APIRouter, HTTPException, BackgroundTasks
+from api.models import WorkflowRequest, WorkflowResponse
 from workflows.test_search.graph import TestSearchWorkflow
-from workflows.pipeline_maturity.graph import PipelineMaturityWorkflow
+from workflows.build_domain.graph import PipelineMaturityWorkflow
 # ← import new workflow here
 
 WORKFLOWS: Dict[str, object] = {
     "test_search": TestSearchWorkflow(),
-    "pipeline_maturity": PipelineMaturityWorkflow(),
+    "build_domain": PipelineMaturityWorkflow(),
     # ← register new workflow here: "workflow_key": MyWorkflow()
 }
+
+@router.post("/execute/{workflow_name}", response_model=WorkflowResponse)
+async def execute_workflow(
+    workflow_name: str,
+    request: WorkflowRequest,
+    background_tasks: BackgroundTasks
+) -> WorkflowResponse:
+    workflow = WORKFLOWS.get(workflow_name)
+    if not workflow:
+        raise HTTPException(status_code=404, detail="Workflow not found")
+
+    try:
+        # Pre-validate inputs synchronously
+        workflow.initialize_state(request.input_data)
+    except ValueError as ve:
+        return WorkflowResponse(workflow=workflow_name, status="error", error=str(ve))
+
+    # Run workflow asynchronously in the background
+    background_tasks.add_task(workflow.run, request.input_data)
+    
+    return WorkflowResponse(
+        workflow=workflow_name,
+        status="in_progress",
+        result=None,
+    )
 ```
 
 ---
@@ -275,13 +342,13 @@ Respond ONLY with valid JSON:
 
 ---
 
-## PART 4 — THE PIPELINE MATURITY WORKFLOW (reference implementation)
+## PART 4 — THE BUILD DOMAIN WORKFLOW (reference implementation)
 
 This is the complete workflow that was built. Use it as the exact structural
 template for all new workflows.
 
 ### Workflow summary
-- **Key:** `pipeline_maturity`
+- **Key:** `build_domain`
 - **Class:** `PipelineMaturityWorkflow`
 - **Purpose:** Assess build pipeline maturity across GitHub / Azure DevOps
 - **Levels:** 5 progressive levels with fail-fast logic
@@ -289,12 +356,13 @@ template for all new workflows.
 
 ### API call format
 ```json
-POST /api/execute/pipeline_maturity
+POST /api/execute/build_domain
 {
   "input_data": {
+    "assessment_id": "33333333-3333-3333-3333-333333333333",
     "platform_type": "github",
     "repository": "myorg/myrepo",
-    "branch": "<branch_name>",
+    "branch": "main",
     "credentials": {
       "token": "<github-pat>"
     }
@@ -302,30 +370,46 @@ POST /api/execute/pipeline_maturity
 }
 ```
 
-### API response format (standardised — ALL workflows return this shape)
+### API response format (returned immediately for async processing)
 ```json
 {
-  "maturity_level": 2,
-  "score": 1.5,
-  "score_range": "1.0–2.0",
-  "assessment_details": {
-    "passed_criteria": ["Pipeline exists", "Build job present", "Test job present"],
-    "failed_criteria": ["No SBOM tool detected"],
-    "reasoning": "Level 1 passed. Level 2 Part A passes but Part B (SBOM) fails."
-  },
-  "improvement_recommendations": [
-    {
-      "gap": "No SBOM generation in pipeline",
-      "action": "Add a Trivy step: trivy image --format cyclonedx myimage > sbom.json",
-      "priority": "high"
-    }
-  ],
-  "level_breakdown": {
-    "1": {"passed": true, "score": 1.0},
-    "2": {"passed": false, "score": 1.5}
-  }
+  "workflow": "build_domain",
+  "status": "in_progress",
+  "result": null,
+  "error": null,
+  "timestamp": "2026-06-17T21:22:05.123456"
 }
 ```
+
+### Database Persistence
+Results are persisted to `assessment_result` table:
+- **Successful Run (Status: `COMPLETED`)**:
+  ```json
+  {
+    "maturity_level": 2,
+    "score": 1.3,
+    "score_range": "1.0–2.0",
+    "assessment_details": {
+      "passed_criteria": ["Image digests used"],
+      "failed_criteria": ["No SBOM generation step found"],
+      "reasoning": "The platform uses image digests for container images, but there is no enforcement of immutability..."
+    },
+    "improvement_recommendations": [
+      {
+        "gap": "Immutability enforcement for container images",
+        "action": "Implement registry policies to prevent overwriting of tags",
+        "priority": "high"
+      }
+    ],
+    "level_breakdown": {
+      "1": {"passed": true, "score": 1.0},
+      "2": {"passed": false, "score": 1.3}
+    }
+  }
+  ```
+- **Error Run (Status: `FAILED`)**:
+  Saves error message in `reasoning` and trace under `additional_info`.
+
 
 ### File structure
 ```
@@ -499,7 +583,7 @@ class PlatformData:
 When generating a new workflow using this context, the AI MUST:
 
 ### Structural rules
-1. **Mirror the pipeline_maturity file structure exactly** — same folder layout, same file names.
+1. **Mirror the build_domain file structure exactly** — same folder layout, same file names.
 2. **One file per concern** — config.py for prompts/constants, nodes.py for node functions, graph.py for wiring.
 3. **Never put nodes inside graph.py** — nodes.py is always separate.
 4. **Never modify** `core/`, `config/`, `api/models.py`, or `workflows/base_workflow.py`.
@@ -538,6 +622,14 @@ When generating a new workflow using this context, the AI MUST:
 27. **`level_breakdown` always included** in the final result.
 28. **`platform.api_call_log` always included** in the final result for debugging.
 29. **README.md always included** with: API usage, levels table, credentials reference, connector guide.
+
+### Database & Persistence rules
+30. **Ensure all workflow executions persist results to the database**:
+    - The terminal node (`format_result_node`) must persist successful results with status `COMPLETED` using `AssessmentResultRepository.insert_assessment_result(...)`.
+    - Catch failures/errors in `BaseWorkflow.run` and save a record with status `FAILED` in the database.
+31. **UUID primary key generation**:
+    - The database table has a primary key `id` of type `uuid` with NO default value.
+    - Before calling the SQL insert statement in the repository, you must generate a new UUID4 string in Python (`str(uuid.uuid4())`) and pass it as the `id` value.
 
 ---
 

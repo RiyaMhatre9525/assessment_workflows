@@ -129,31 +129,24 @@ python main.py
 ### First API call
 
 ```bash
-# Execute the test_search workflow
+# Execute the test_search workflow (now asynchronous)
 curl -X POST http://localhost:8000/api/execute/test_search \
   -H "Content-Type: application/json" \
   -d '{"input_data": {"query": "OWASP Top-10 vulnerabilities"}}'
 ```
 
-Expected response:
+Expected response (returned immediately while processing in background):
 
 ```json
 {
   "workflow": "test_search",
-  "status": "success",
-  "result": {
-    "query": "OWASP Top-10 vulnerabilities",
-    "assessment": "...",
-    "search_successful": true,
-    "metadata": {
-      "workflow": "test_search",
-      "status": "completed"
-    }
-  },
+  "status": "in_progress",
+  "result": null,
   "error": null,
-  "timestamp": "2025-01-15T12:30:45.123456"
+  "timestamp": "2026-06-17T12:30:45.123456"
 }
 ```
+
 
 ---
 
@@ -419,17 +412,21 @@ devops-assessment-backend/
 ├── core/                      # ── Cross-cutting infrastructure
 │   ├── __init__.py            #    Re-exports logger + LLMProvider
 │   ├── logger.py              #    Structured logging factory
-│   └── llm_provider.py        #    Singleton ChatOpenAI wrapper
+│   ├── llm_provider.py        #    Singleton ChatOpenAI wrapper
+│   ├── database.py            #    SQLAlchemy DB engine & session
+│   └── repositories/          #    Data access layer / repositories
+│       └── assessment_result_repository.py
 │
 ├── workflows/                 # ── Business logic (one pkg per workflow)
 │   ├── __init__.py            #    Re-exports BaseWorkflow
 │   ├── base_workflow.py       #    Abstract base with run() lifecycle
-│   └── test_search/           #    Reference workflow implementation
-│       ├── __init__.py        #    Package docstring
-│       ├── config.py          #    Prompts + tool definitions
-│       ├── agents.py          #    Agent factory (ReAct + tools)
-│       ├── nodes.py           #    Graph node functions
-│       └── graph.py           #    LangGraph wiring + state schema
+│   ├── test_search/           #    Reference search workflow
+│   │   └── ...
+│   └── build_domain/          #    Build pipeline maturity assessment
+│       ├── __init__.py
+│       ├── config.py          #    Prompts + score ranges
+│       ├── nodes.py           #    Assessment nodes & DB persist
+│       └── graph.py           #    LangGraph state + workflow class
 │
 ├── api/                       # ── HTTP interface
 │   ├── __init__.py            #    Package docstring

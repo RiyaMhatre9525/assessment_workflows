@@ -6,12 +6,15 @@ Evaluates build pipeline maturity across version control and cloud platforms usi
 
 ## API Usage
 
+Workflows are executed asynchronously in the background. Calling the endpoint performs synchronous input validation and immediately returns an `"in_progress"` response.
+
 ```bash
-POST /api/execute/pipeline_maturity
+POST /api/execute/build_domain
 Content-Type: application/json
 
 {
   "input_data": {
+    "assessment_id": "33333333-3333-3333-3333-333333333333",
     "platform_type": "github",
     "repository": "myorg/myrepo",
     "branch": "main",
@@ -26,6 +29,7 @@ For Azure DevOps:
 ```json
 {
   "input_data": {
+    "assessment_id": "33333333-3333-3333-3333-333333333333",
     "platform_type": "azure_devops",
     "repository": "MyProject/MyRepo",
     "branch": "main",
@@ -40,31 +44,49 @@ For Azure DevOps:
 
 ---
 
-## Response Format
+## Response & Persistence Format
 
+### 1. API Response (Returned Immediately)
 ```json
 {
-  "maturity_level": 2,
-  "score": 1.5,
-  "score_range": "1.0–2.0",
-  "assessment_details": {
-    "passed_criteria": ["Pipeline exists", "Build job present", "Test job present", "Image digests used"],
-    "failed_criteria": ["No SBOM tool detected in pipeline"],
-    "reasoning": "Pipeline satisfies Level 1. Level 2 Part A passes (immutability enforced) but Part B fails (no SBOM generation step found)."
-  },
-  "improvement_recommendations": [
-    {
-      "gap": "No SBOM generation in pipeline",
-      "action": "Add a Trivy or Syft step after the build job: `trivy image --format cyclonedx myimage:latest > sbom.json`",
-      "priority": "high"
-    }
-  ],
-  "level_breakdown": {
-    "1": {"passed": true, "score": 1.0},
-    "2": {"passed": false, "score": 1.5}
-  }
+  "workflow": "build_domain",
+  "status": "in_progress",
+  "result": null,
+  "error": null,
+  "timestamp": "2026-06-17T21:22:05.123456"
 }
 ```
+
+### 2. Database Persistence
+Once background processing finishes, results are automatically saved to the database table `assessment_result`.
+
+* **Successful Completion (Status: `COMPLETED`)**:
+  ```json
+  {
+    "maturity_level": 2,
+    "score": 1.3,
+    "score_range": "1.0–2.0",
+    "assessment_details": {
+      "passed_criteria": ["Image digests used"],
+      "failed_criteria": ["No SBOM generation step found"],
+      "reasoning": "The platform uses image digests for container images, but there is no enforcement of immutability..."
+    },
+    "improvement_recommendations": [
+      {
+        "gap": "Immutability enforcement for container images",
+        "action": "Implement registry policies to prevent overwriting of tags",
+        "priority": "high"
+      }
+    ],
+    "level_breakdown": {
+      "1": {"passed": true, "score": 1.0},
+      "2": {"passed": false, "score": 1.3}
+    }
+  }
+  ```
+* **Failure (Status: `FAILED`)**:
+  If execution fails unexpectedly, a record is still created with status `FAILED` and error details written under `reasoning` / `additional_info`.
+
 
 ---
 
@@ -138,6 +160,6 @@ from workflows.build_domain.graph import PipelineMaturityWorkflow
 
 WORKFLOWS = {
     "test_search": TestSearchWorkflow(),
-    "pipeline_maturity": PipelineMaturityWorkflow(),   # ← add
+    "build_domain": PipelineMaturityWorkflow(),   # ← registered here
 }
 ```

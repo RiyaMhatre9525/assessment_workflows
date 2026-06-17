@@ -76,9 +76,9 @@ structured, repeatable results in seconds instead of hours.
 │                                                              │
 │  ┌──────────┐    ┌───────────────────────┐    ┌───────────┐ │
 │  │ main.py  │───▶│  api/routes.py        │───▶│ api/      │ │
-│  │ (ASGI)   │    │  (WORKFLOWS registry) │    │ models.py │ │
+│  │ (ASGI)   │    │  (BackgroundTasks)    │    │ models.py │ │
 │  └──────────┘    └───────────┬───────────┘    └───────────┘ │
-│                              │                               │
+│                              │ (Async trigger)               │
 │                    ┌─────────▼─────────┐                     │
 │                    │ BaseWorkflow.run() │                     │
 │                    │  1. init_state()   │                     │
@@ -91,23 +91,32 @@ structured, repeatable results in seconds instead of hours.
 │        ┌─────▼──────┐  ┌────▼─────┐  ┌──────▼──────┐       │
 │        │  graph.py  │  │ nodes.py │  │  agents.py  │       │
 │        │ (StateGraph)│  │ (funcs)  │  │ (ReAct loop)│       │
-│        └────────────┘  └──────────┘  └──────┬──────┘       │
-│                                             │               │
-│                                    ┌────────▼────────┐      │
-│                                    │  config.py      │      │
-│                                    │  (prompts+tools)│      │
-│                                    └─────────────────┘      │
-│                                                              │
-│  ┌─────────────────────┐  ┌────────────────────────┐        │
-│  │  core/llm_provider  │  │  config/settings.py    │        │
-│  │  (Singleton LLM)    │  │  (env vars + .env)     │        │
-│  └────────┬────────────┘  └────────────────────────┘        │
-│           │                                                  │
-└───────────┼──────────────────────────────────────────────────┘
-            │
-     ┌──────▼──────┐
-     │  OpenAI API │
-     └─────────────┘
+│        └────────────┘  └─────┬────┘  └──────┬──────┘       │
+│                              │              │               │
+│                              │ (Persist)    │ (Prompts/     │
+│                              ▼              │  Tools)       │
+│                 ┌────────────────────────┐  │               │
+│                 │ core/repositories/     │◀─┼───────────────┘
+│                 │ assessment_result_repo │  │
+│                 └────────────┬───────────┘  ▼
+│                              │      ┌──────────────────────┐
+│                              ▼      │ config.py            │
+│                 ┌────────────────┐  │ (prompts + tools)    │
+│                 │ core/database  │  └──────────────────────┘
+│                 │ (SQLAlchemy)   │                           │
+│                 └────────────┬───┘                           │
+│                              │                               │
+│  ┌─────────────────────┐     │      ┌──────────────────────┐ │
+│  │  core/llm_provider  │     │      │  config/settings.py  │ │
+│  │  (Singleton LLM)    │     │      │  (env vars + .env)   │ │
+│  └────────┬────────────┘     │      └──────────────────────┘ │
+│           │                  │                               │
+└───────────┼──────────────────┼───────────────────────────────┘
+            │                  │
+     ┌──────▼──────┐           ▼
+     │  OpenAI API │   ┌───────────────┐
+     └─────────────┘   │ PostgreSQL DB │
+                       └───────────────┘
 ```
 
 ### Component Interaction Flow
@@ -116,27 +125,32 @@ structured, repeatable results in seconds instead of hours.
 Client Request
     │
     ▼
-routes.py: look up WORKFLOWS[name]
+routes.py: validate input, look up WORKFLOWS[name]
     │
-    ▼
+    ├──▶ (Immediate Response 200 OK: {"status": "in_progress"})
+    │
+    ▼ (Background Tasks queue)
 BaseWorkflow.run(input_data)
     │
-    ├──▶ initialize_state(input_data)  →  state = {query: "...", status: "init"}
+    ├──▶ initialize_state(input_data)  →  state = {assessment_id: "...", platform_type: "...", ...}
     │
     ├──▶ graph.ainvoke(state)
     │       │
-    │       ├──▶ search_node(state)  →  calls agent  →  calls tools  →  updates state
-    │       │
-    │       └──▶ process_node(state)  →  formats result  →  updates state
+    │       ├──▶ collect_platform_data_node(state)  →  connector collects REST API metadata
+    │       ├──▶ level_nodes(state)                 →  calls LLM for level-by-level assessments
+    │       └──▶ format_result_node(state)          →  aggregates results, persists COMPLETED to DB
     │
-    └──▶ extract_result(final_state)  →  return result dict
+    └──▶ extract_result(final_state)
+            │
+            ▼ (On Exception/Error)
+         BaseWorkflow.run() catches error → persists FAILED result to DB
 ```
 
 ### Data Flow
 
-Request JSON → Pydantic validation → `input_data` dict → `initialize_state()`
-→ State TypedDict → Node 1 transforms → Node 2 transforms → `extract_result()`
-→ Response dict → Pydantic serialisation → Response JSON.
+Request JSON → Pydantic validation → `input_data` dict → Immediate response generated
+→ (Background task start) → `initialize_state()` → State TypedDict → Collect platform data → Progressive assessment levels → `format_result_node()` → Database insert (UUID primary key generated in Python) → Workflow completes.
+
 
 ---
 
@@ -455,11 +469,16 @@ coroutines) and explicit.
 | `config/settings.py`             | Environment configuration                    | `Settings`, `get_settings()`      |
 | `core/logger.py`                 | Logging factory                              | `get_logger(name)`                |
 | `core/llm_provider.py`           | Singleton LLM wrapper                        | `LLMProvider`, `get_llm()`        |
+| `core/database.py`                | Database connection and session management  | `engine`, `SessionLocal`, `get_db` |
+| `core/repositories/assessment_result_repository.py` | DB insertions for assessment results        | `AssessmentResultRepository`       |
 | `workflows/base_workflow.py`     | Abstract base class for all workflows        | `BaseWorkflow`, `run()`           |
 | `workflows/test_search/config.py`| System prompts and tool definitions          | `SEARCH_AGENT_SYSTEM_PROMPT`, `TOOLS` |
 | `workflows/test_search/agents.py`| Agent factory                                | `create_search_agent()`           |
 | `workflows/test_search/nodes.py` | Graph node functions                         | `SearchNodes` class               |
 | `workflows/test_search/graph.py` | LangGraph wiring + concrete workflow         | `TestSearchWorkflow`, `SearchWorkflowState` |
+| `workflows/build_domain/config.py`| Prompts & score ranges for pipeline maturity | `LEVEL_SCORE_RANGES`, prompts      |
+| `workflows/build_domain/nodes.py` | Progressive assessment nodes & DB persistence| `collect_platform_data_node` etc.  |
+| `workflows/build_domain/graph.py` | LangGraph wiring + maturity workflow class  | `PipelineMaturityWorkflow`         |
 | `api/models.py`                  | Pydantic request/response schemas            | `WorkflowRequest`, `WorkflowResponse` |
 | `api/routes.py`                  | FastAPI endpoints + workflow registry         | `WORKFLOWS`, `execute_workflow()` |
 
@@ -1045,6 +1064,9 @@ print(response.json())
 |---------|------------|-------------------------------------------------|
 | 1.0.0   | 2025-06-15 | Initial release — test_search workflow, FastAPI  |
 |         |            | API, LangChain agents, LangGraph state machine   |
+| 1.1.0   | 2026-06-17 | Added build_domain workflow (PipelineMaturityWorkflow), |
+|         |            | database persistence layer with SQLAlchemy & PostgreSQL, |
+|         |            | and async API background task execution.        |
 
 *Maintain this table when making significant changes.*
 

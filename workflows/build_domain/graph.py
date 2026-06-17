@@ -51,6 +51,7 @@ logger = get_logger(__name__)
 
 class PipelineMaturityState(TypedDict, total=False):
     # --- Inputs (set by initialize_state) ---
+    assessment_id: str        # unique assessment identifier from API caller
     platform_type: str        # "github" | "azure_devops" | …
     credentials: dict         # platform-specific auth
     repository: str           # "owner/repo" or "project/repo"
@@ -159,6 +160,7 @@ class PipelineMaturityWorkflow(BaseWorkflow):
 
         Args:
             input_data: dict with keys:
+                assessment_id  (required) – unique assessment identifier
                 platform_type  (required) – "github" | "azure_devops"
                 credentials    (required) – auth dict for the platform
                 repository     (required) – "owner/repo"
@@ -166,11 +168,14 @@ class PipelineMaturityWorkflow(BaseWorkflow):
         Raises:
             ValueError: if required fields are missing.
         """
+        assessment_id = input_data.get("assessment_id", "").strip()
         platform_type = input_data.get("platform_type", "").strip()
         credentials = input_data.get("credentials")
         repository = input_data.get("repository", "").strip()
         branch = input_data.get("branch", "").strip()
 
+        if not assessment_id:
+            raise ValueError("'assessment_id' is required")
         if not platform_type:
             raise ValueError("'platform_type' is required (e.g. 'github', 'azure_devops')")
         if not credentials or not isinstance(credentials, dict):
@@ -179,10 +184,12 @@ class PipelineMaturityWorkflow(BaseWorkflow):
             raise ValueError("'repository' is required (e.g. 'owner/repo')")
 
         logger.info(
-            "initialize_state: platform=%s repository=%s branch=%s", platform_type, repository, branch
+            "initialize_state: assessment_id=%s platform=%s repository=%s branch=%s",
+            assessment_id, platform_type, repository, branch,
         )
 
         return {
+            "assessment_id": assessment_id,
             "platform_type": platform_type,
             "credentials": credentials,
             "repository": repository,

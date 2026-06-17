@@ -26,3 +26,7 @@ pydantic-settings  # Settings management with .env file support
 
 # ── Utilities ────────────────────────────────────────────────────────
 python-dotenv      # Load .env files into os.environ
+
+# ── Database ─────────────────────────────────────────────────────────
+sqlalchemy         # SQL Toolkit and Object Relational Mapper
+psycopg2-binary    # PostgreSQL database adapter for Python

@@ -16,6 +16,9 @@ class Settings(BaseSettings):
     OPENAI_TEMPERATURE: float = 0.0
     OPENAI_MAX_TOKENS: Optional[int] = None
 
+    #Database URL
+    DATABASE_URL: str
+
     # Server Settings
     API_HOST: str = "0.0.0.0"
     API_PORT: int = 8000

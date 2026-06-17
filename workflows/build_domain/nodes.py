@@ -17,6 +17,8 @@ import re
 
 from core.logger import get_logger
 from core.llm_provider import LLMProvider
+from core.database import SessionLocal
+from core.repositories.assessment_result_repository import AssessmentResultRepository
 from workflows.build_domain.config import (
     LEVEL1_SYSTEM_PROMPT,
     LEVEL2_SYSTEM_PROMPT,
@@ -554,5 +556,28 @@ async def format_result_node(state: dict) -> dict:
         current_level,
         final_score,
     )
+
+    # ---- Persist result to database ----
+    assessment_id = state.get("assessment_id", "")
+    if assessment_id:
+        try:
+            db = SessionLocal()
+            AssessmentResultRepository.insert_assessment_result(
+                db=db,
+                assessment_id=assessment_id,
+                status="COMPLETED",
+                domain_name="BUILD",
+                domain_score=round(final_score, 2),
+                reasoning=level_data.get("reasoning", ""),
+                improvement_recommendations=all_recommendations,
+                additional_info=final_result,
+            )
+            logger.info("Assessment result saved for assessment_id=%s", assessment_id)
+        except Exception as exc:
+            logger.error("Failed to save assessment result: %s", exc, exc_info=True)
+        finally:
+            db.close()
+    else:
+        logger.warning("No assessment_id in state – skipping DB persistence")
 
     return {"final_result": final_result, "status": "completed"}

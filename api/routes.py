@@ -11,6 +11,8 @@ from api.models import WorkflowRequest, WorkflowResponse
 from workflows.test_search.graph import TestSearchWorkflow
 #bulid domain
 from workflows.build_domain.graph import PipelineMaturityWorkflow
+#deploy domian
+from workflows.deployment_domain.graph import DeploymentMaturityWorkflow
 
 logger: logging.Logger = get_logger(__name__)
 
@@ -18,6 +20,7 @@ logger: logging.Logger = get_logger(__name__)
 WORKFLOWS: Dict[str, object] = {
     "test_search": TestSearchWorkflow(),
     "build_domain": PipelineMaturityWorkflow(), 
+    "deployment_domain": DeploymentMaturityWorkflow(),  
 }
 
 router = APIRouter(prefix="/api", tags=["Workflows"])

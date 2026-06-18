@@ -39,19 +39,20 @@ class GitHubConnector(BasePlatformConnector):
             logger.error("GitHub health_check failed: %s", exc)
             return False
 
-    async def collect(self, repository: str) -> DeploymentPlatformData:
+    async def collect(self, repository: str, branch: str = "main") -> DeploymentPlatformData:
         pd = DeploymentPlatformData(platform_type="github", repository=repository)
 
         owner, repo = (repository.split("/") + [""])[:2]
-        await self._collect_workflows(pd, owner, repo)
+        await self._collect_workflows(pd, owner, repo, branch)
         await self._collect_packages(pd, owner, repo)
-        await self._collect_branch_protection(pd, owner, repo)
+        await self._collect_branch_protection(pd, owner, repo, branch)
         await self._collect_dependabot(pd, owner, repo)
 
         pd.api_call_log = self._api_call_log
         return pd
 
-    async def _collect_workflows(self, pd: DeploymentPlatformData, owner: str, repo: str) -> None:
+    async def _collect_workflows(self, pd: DeploymentPlatformData, owner: str, repo: str, branch: str) -> None:
+        # Filter workflows that run on the target branch
         url = f"{_BASE}/repos/{owner}/{repo}/actions/workflows"
         self._log(f"GET {url}")
         async with httpx.AsyncClient(timeout=15) as client:
@@ -61,16 +62,21 @@ class GitHubConnector(BasePlatformConnector):
             workflows = r.json().get("workflows", [])
 
         for wf in workflows:
-            raw = await self._fetch_workflow_content(owner, repo, wf.get("path", ""))
+            raw = await self._fetch_workflow_content(owner, repo, wf.get("path", ""), branch)
             content_lower = raw.lower()
+
+            # Only assess workflows that reference the target branch
+            if branch not in raw and f"branches: [{branch}]" not in raw:
+                if "on:" in content_lower and branch not in content_lower:
+                    continue
 
             info = DeploymentPipelineInfo(
                 name=wf.get("name", ""),
                 path=wf.get("path", ""),
                 raw_content=raw,
                 has_deployment_job=any(k in content_lower for k in ("deploy", "release", "publish")),
-                has_rollback_step="rollback" in content_lower,
-                has_approval_gate=any(k in content_lower for k in ("environment:", "approval", "wait")),
+                has_rollback_step=any(k in content_lower for k in ("rollback", "undo", "if: failure")),
+                has_approval_gate=any(k in content_lower for k in ("environment:", "environment :", "approval", "wait", "\n    environment:")),
                 uses_iac=any(k in content_lower for k in ("terraform", "pulumi", "bicep", "arm template", "cloudformation")),
             )
 
@@ -111,10 +117,11 @@ class GitHubConnector(BasePlatformConnector):
 
             pd.pipelines.append(info)
 
-    async def _fetch_workflow_content(self, owner: str, repo: str, path: str) -> str:
+    async def _fetch_workflow_content(self, owner: str, repo: str, path: str, branch: str) -> str:
         if not path:
             return ""
-        url = f"https://raw.githubusercontent.com/{owner}/{repo}/HEAD/{path}"
+        # Fetch workflow file from the target branch instead of HEAD
+        url = f"https://raw.githubusercontent.com/{owner}/{repo}/{branch}/{path}"
         self._log(f"GET {url}")
         try:
             async with httpx.AsyncClient(timeout=10) as client:
@@ -141,8 +148,9 @@ class GitHubConnector(BasePlatformConnector):
         except Exception as exc:
             logger.warning("_collect_packages failed: %s", exc)
 
-    async def _collect_branch_protection(self, pd: DeploymentPlatformData, owner: str, repo: str) -> None:
-        url = f"{_BASE}/repos/{owner}/{repo}/branches/main/protection"
+    async def _collect_branch_protection(self, pd: DeploymentPlatformData, owner: str, repo: str, branch: str) -> None:
+        # Use the target branch for protection rules instead of hardcoded 'main'
+        url = f"{_BASE}/repos/{owner}/{repo}/branches/{branch}/protection"
         self._log(f"GET {url}")
         try:
             async with httpx.AsyncClient(timeout=10) as client:

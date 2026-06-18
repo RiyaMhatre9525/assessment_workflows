@@ -17,6 +17,7 @@ class DeploymentDomainState(TypedDict, total=False):
     assessment_id: str
     platform_type: str
     repository: str
+    branch: str 
     credentials: dict
     platform_data: Any
     level_results: dict
@@ -97,11 +98,14 @@ class DeploymentMaturityWorkflow(BaseWorkflow):
         repository = input_data.get("repository", "").strip()
         if not repository:
             raise ValueError("'repository' is required (e.g. 'myorg/myrepo').")
+        
+        branch = input_data.get("branch", "").strip()
 
         return {
             "assessment_id": input_data.get("assessment_id", ""),
             "platform_type": platform_type,
             "repository": repository,
+            "branch": branch,
             "credentials": credentials,
             "level_results": {},
             "stop_assessment": False,

@@ -48,7 +48,13 @@ def _build_platform_summary(pd: DeploymentPlatformData) -> str:
             f"  - [{p.name}] deploy={p.has_deployment_job} rollback={p.has_rollback_step} "
             f"approval={p.has_approval_gate} iac={p.uses_iac}"
         )
+        if p.raw_content:
+            # Send first 3000 chars of YAML so LLM can assess directly
+            lines.append(f"    YAML_CONTENT:\n{p.raw_content[:3000]}")
+
+    
     lines += [
+        f"Pipelines found: {len(pd.pipelines)}",
         f"Artifacts found: {len(pd.artifacts)}",
         f"Secrets tool: {pd.secrets.tool_detected or 'none'} | externalized={pd.secrets.secrets_externalized} | encrypted={pd.secrets.env_config_encrypted}",
         f"Decommissioning documented: {pd.decommissioning.process_documented} | containers={pd.decommissioning.covers_containers} | k8s={pd.decommissioning.covers_kubernetes}",
@@ -85,8 +91,9 @@ async def collect_platform_data_node(state: dict) -> dict:
                 "error_message": f"Authentication failed for platform: {platform_type}",
                 "stop_assessment": True,
             }
-
-        platform_data = await connector.collect(repository)
+        
+        branch: str = state.get("branch", "")
+        platform_data = await connector.collect(repository, branch=branch)
         logger.info("── collect_platform_data_node: collected %d pipelines ──", len(platform_data.pipelines))
         return {"platform_data": platform_data, "status": "data_collected", "stop_assessment": False}
 

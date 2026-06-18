@@ -16,6 +16,7 @@ Content-Type: application/json
     "assessment_id": "aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa",
     "platform_type": "github",
     "repository": "myorg/myrepo",
+    "branch":"main",
     "credentials": {
       "token": "<github-pat>"
     }

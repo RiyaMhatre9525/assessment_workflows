@@ -373,6 +373,28 @@ llm = ChatOpenAI(model=settings.OPENAI_MODEL, ...)
 
 **When to use:** Decoupling code from environment-specific values.
 
+### 6. Fail-Fast Progressive Assessment — Build & Deployment Domains
+
+Both `build_domain` and `deployment_domain` use a fail-fast 5-level maturity model:
+
+- Each level node stores the **full LLM result** (not just `{passed, score}`) in `level_results`.
+- The graph's conditional edges stop execution immediately if a level fails.
+- `format_result_node` always runs, building a `level_wise_criteria` list covering **all 5 levels** regardless of where the assessment stopped.
+- **Checked levels** (`checked: true`): per-criterion `PASSED`/`FAILED` objects with LLM-generated `{name, reason}`.
+- **Skipped levels** (`checked: false`): canonical criterion names from `LEVEL_CRITERIA_NAMES` in `config.py`, status `NOT_CHECKED`, and a skip reason naming the exact failing level.
+
+```python
+# config.py — canonical criterion names (must match prompt criteria exactly)
+LEVEL_CRITERIA_NAMES: dict[int, list[str]] = {
+    1: ["Pipeline defined", "Build step exists", "Test step exists", "Security scan step exists"],
+    2: ["Image digests used", "SBOM generation", "Artifact immutability"],
+    # ...
+}
+
+# LLM prompts return {name, reason} objects — never flat strings
+"passed_criteria": [{"name": "<criterion>", "reason": "<one sentence>"}]
+```
+
 ---
 
 ## Code Organisation
@@ -476,9 +498,12 @@ coroutines) and explicit.
 | `workflows/test_search/agents.py`| Agent factory                                | `create_search_agent()`           |
 | `workflows/test_search/nodes.py` | Graph node functions                         | `SearchNodes` class               |
 | `workflows/test_search/graph.py` | LangGraph wiring + concrete workflow         | `TestSearchWorkflow`, `SearchWorkflowState` |
-| `workflows/build_domain/config.py`| Prompts & score ranges for pipeline maturity | `LEVEL_SCORE_RANGES`, prompts      |
-| `workflows/build_domain/nodes.py` | Progressive assessment nodes & DB persistence| `collect_platform_data_node` etc.  |
+| `workflows/build_domain/config.py`| Prompts, score ranges, LEVEL_CRITERIA_NAMES  | `LEVEL_SCORE_RANGES`, `LEVEL_CRITERIA_NAMES`, prompts |
+| `workflows/build_domain/nodes.py` | Progressive assessment nodes + level_wise_criteria builder + DB persist | `collect_platform_data_node`, `format_result_node` |
 | `workflows/build_domain/graph.py` | LangGraph wiring + maturity workflow class  | `PipelineMaturityWorkflow`         |
+| `workflows/deployment_domain/config.py`| Prompts, score ranges, LEVEL_CRITERIA_NAMES for deployment maturity | `LEVEL_SCORE_RANGES`, `LEVEL_CRITERIA_NAMES`, prompts |
+| `workflows/deployment_domain/nodes.py` | Deployment assessment nodes + level_wise_criteria builder + DB persist | `collect_platform_data_node`, `format_result_node` |
+| `workflows/deployment_domain/graph.py` | LangGraph wiring + deployment workflow class | `DeploymentMaturityWorkflow`       |
 | `api/models.py`                  | Pydantic request/response schemas            | `WorkflowRequest`, `WorkflowResponse` |
 | `api/routes.py`                  | FastAPI endpoints + workflow registry         | `WORKFLOWS`, `execute_workflow()` |
 
@@ -686,6 +711,13 @@ Before creating a new workflow, verify:
 - [ ] **Docstrings** — every class and public function has a docstring explaining *why*.
 - [ ] **Registered** — the workflow is added to `WORKFLOWS` in `api/routes.py`.
 - [ ] **Tested** — you can `curl` the endpoint and get a valid response.
+
+**For progressive maturity assessment workflows additionally:**
+- [ ] `config.py` has `LEVEL_CRITERIA_NAMES` matching each prompt's criteria exactly.
+- [ ] All LLM prompts return `passed_criteria`/`failed_criteria` as `{name, reason}` objects.
+- [ ] Every level node stores the **full LLM result dict** in `level_results` (not just `{passed, score}`).
+- [ ] `format_result_node` builds `level_wise_criteria` for all 5 levels with `NOT_CHECKED` fallback.
+- [ ] `level_breakdown` in final output is compact `{passed, score}` per level only.
 
 ---
 
@@ -1067,6 +1099,12 @@ print(response.json())
 | 1.1.0   | 2026-06-17 | Added build_domain workflow (PipelineMaturityWorkflow), |
 |         |            | database persistence layer with SQLAlchemy & PostgreSQL, |
 |         |            | and async API background task execution.        |
+| 1.2.0   | 2026-06-27 | Added deployment_domain workflow (DeploymentMaturityWorkflow). |
+|         |            | Introduced `level_wise_criteria` output field across build_domain |
+|         |            | and deployment_domain — covers all 5 levels with PASSED/FAILED/NOT_CHECKED |
+|         |            | per-criterion detail. LLM prompts now return `{name, reason}` objects |
+|         |            | instead of flat strings. Added `LEVEL_CRITERIA_NAMES` to config.py |
+|         |            | in both domains. Fail-fast pattern 6 documented in PROJECT_CONTEXT.md. |
 
 *Maintain this table when making significant changes.*
 

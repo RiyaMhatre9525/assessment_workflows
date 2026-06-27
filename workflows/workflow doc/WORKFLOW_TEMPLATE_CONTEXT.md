@@ -330,8 +330,8 @@ Respond ONLY with valid JSON:
   "level": N,
   "passed": <boolean>,
   "score": <float score_min–score_max>,
-  "passed_criteria": [<strings>],
-  "failed_criteria": [<strings>],
+  "passed_criteria": [{"name": "<criterion>", "reason": "<brief one-sentence explanation>"}],
+  "failed_criteria": [{"name": "<criterion>", "reason": "<brief one-sentence explanation>"}],
   "reasoning": "<concise explanation>",
   "recommendations": [
     {"gap": "<specific gap>", "action": "<concrete action>", "priority": "<high|medium|low>"}
@@ -339,6 +339,11 @@ Respond ONLY with valid JSON:
 }
 """
 ```
+
+> **Note:** `passed_criteria` and `failed_criteria` are arrays of `{name, reason}` objects — NOT flat strings.
+> The `name` is the criterion label; `reason` is a brief one-sentence explanation of why it passed or failed.
+> In `format_result_node`, parse each item with `isinstance(item, dict)` and fall back to a plain string
+> gracefully if the model ever returns the old format.
 
 ---
 
@@ -390,15 +395,43 @@ Results are persisted to `assessment_result` table:
     "score": 1.3,
     "score_range": "1.0–2.0",
     "assessment_details": {
-      "passed_criteria": ["Image digests used"],
-      "failed_criteria": ["No SBOM generation step found"],
-      "reasoning": "The platform uses image digests for container images, but there is no enforcement of immutability..."
+      "passed_criteria": [{"name": "Image digests used", "reason": "Images pinned by sha256 digest in manifests."}],
+      "failed_criteria": [{"name": "SBOM generation", "reason": "No SBOM tool step detected in pipeline."}],
+      "reasoning": "Digests used but SBOM and immutability are absent."
     },
     "improvement_recommendations": [
+      {"gap": "SBOM missing", "action": "Add Trivy SBOM step to pipeline", "priority": "high"}
+    ],
+    "level_wise_criteria": [
       {
-        "gap": "Immutability enforcement for container images",
-        "action": "Implement registry policies to prevent overwriting of tags",
-        "priority": "high"
+        "level": 1, "level_name": "Build Process Definition",
+        "status": "PASSED", "checked": true, "score": 1.0,
+        "reasoning": "All three job types detected.",
+        "criteria": [
+          {"name": "Pipeline defined",          "status": "PASSED", "reason": "GitHub Actions YAML found."},
+          {"name": "Build step exists",         "status": "PASSED", "reason": "npm run build confirmed."},
+          {"name": "Test step exists",          "status": "PASSED", "reason": "pytest runs on every push."},
+          {"name": "Security scan step exists", "status": "PASSED", "reason": "Trivy configured as blocking step."}
+        ]
+      },
+      {
+        "level": 2, "level_name": "Artifact Pinning & SBOM",
+        "status": "FAILED", "checked": true, "score": 1.3,
+        "reasoning": "Digests used but no SBOM or immutability.",
+        "criteria": [
+          {"name": "Image digests used",    "status": "PASSED", "reason": "Images pinned by sha256 digest."},
+          {"name": "SBOM generation",       "status": "FAILED", "reason": "No SBOM tool step in pipeline."},
+          {"name": "Artifact immutability", "status": "FAILED", "reason": "Registry tags are mutable."}
+        ]
+      },
+      {
+        "level": 3, "level_name": "Code Signing & Enforcement",
+        "status": "NOT_CHECKED", "checked": false, "score": null, "reasoning": null,
+        "criteria": [
+          {"name": "GPG commit signing",     "status": "NOT_CHECKED", "reason": "Level 2 did not pass — assessment halted."},
+          {"name": "Branch protection rules","status": "NOT_CHECKED", "reason": "Level 2 did not pass — assessment halted."},
+          {"name": "Require signed commits", "status": "NOT_CHECKED", "reason": "Level 2 did not pass — assessment halted."}
+        ]
       }
     ],
     "level_breakdown": {
@@ -443,6 +476,17 @@ LEVEL_DESCRIPTIONS: dict[int, str] = {
     # ...
 }
 
+# Canonical criterion names per level.
+# Used for NOT_CHECKED entries in level_wise_criteria (skipped levels).
+# Must match the criteria listed in each LLM system prompt.
+LEVEL_CRITERIA_NAMES: dict[int, list[str]] = {
+    1: ["Pipeline defined", "Build step exists", "Test step exists", "Security scan step exists"],
+    2: ["Image digests used", "SBOM generation", "Artifact immutability"],
+    3: ["GPG commit signing", "Branch protection rules", "Require signed commits"],
+    4: ["Policy definition"],
+    5: ["Cosign/in-toto signatures", "Deployment verification"],
+}
+
 # One system prompt constant per level:
 LEVEL1_SYSTEM_PROMPT = """...(see Pattern 7 above)..."""
 LEVEL2_SYSTEM_PROMPT = """..."""
@@ -463,14 +507,78 @@ async def level1_node(state: dict) -> dict:
     if state.get("stop_assessment"): return {}   # skip if already stopped
     # 1. Build platform summary string from state["platform_data"]
     # 2. Call _async_llm(LEVEL1_SYSTEM_PROMPT, summary)
-    # 3. If passed: return {"level_results": ..., "current_level": 1, "stop_assessment": False}
-    # 4. If failed: return {"level_results": ..., "current_level": 1, "final_score": score,
+    # 3. Store FULL LLM result in level_results:
+    #       level_results = dict(state.get("level_results", {}))
+    #       level_results[1] = result   ← full dict, not just {passed, score}
+    # 4. If passed: return {"level_results": ..., "current_level": 1, "stop_assessment": False}
+    # 5. If failed: return {"level_results": ..., "current_level": 1, "final_score": score,
     #                        "stop_assessment": True, "status": "assessment_stopped_at_level_1"}
 
 # Terminal node: always last
 async def format_result_node(state: dict) -> dict:
-    # Build final_result dict from level_results, current_level, final_score
-    # Return: {"final_result": {...}, "status": "completed"}
+    # 1. Read level_results, current_level, final_score from state
+    # 2. Aggregate recommendations from ALL completed levels
+    # 3. Build level_wise_criteria covering ALL 5 levels:
+    #      - Checked levels  → per-criterion PASSED/FAILED from LLM {name, reason} objects
+    #      - Skipped levels  → canonical names from LEVEL_CRITERIA_NAMES + NOT_CHECKED
+    # 4. Build compact level_breakdown {passed, score} per level
+    # 5. Assemble final_result dict with level_wise_criteria included
+    # 6. Persist to database with status COMPLETED
+    # 7. Return: {"final_result": {...}, "status": "completed"}
+
+
+# Helper: parse {name, reason} object or fall back to plain string
+def _parse_criterion(item) -> tuple[str, str]:
+    if isinstance(item, dict):
+        return item.get("name", ""), item.get("reason", "")
+    return item, ""   # plain string fallback
+```
+
+### level_wise_criteria builder (inside format_result_node)
+```python
+ALL_LEVELS = [1, 2, 3, 4, 5]
+
+# Find first failing level for skip reason
+failed_at_level = None
+for _lvl in ALL_LEVELS:
+    if _lvl in level_results and not level_results[_lvl].get("passed", True):
+        failed_at_level = _lvl
+        break
+
+level_wise_criteria = []
+for lvl in ALL_LEVELS:
+    lvl_name = LEVEL_DESCRIPTIONS.get(lvl, f"Level {lvl}")
+
+    if lvl in level_results:                          # level was evaluated
+        res = level_results[lvl]
+        criteria_list = []
+        for item in res.get("passed_criteria", []):
+            name, reason = _parse_criterion(item)
+            criteria_list.append({"name": name, "status": "PASSED", "reason": reason})
+        for item in res.get("failed_criteria", []):
+            name, reason = _parse_criterion(item)
+            criteria_list.append({"name": name, "status": "FAILED", "reason": reason})
+        level_wise_criteria.append({
+            "level": lvl, "level_name": lvl_name,
+            "status": "PASSED" if res.get("passed") else "FAILED",
+            "checked": True, "score": res.get("score"),
+            "reasoning": res.get("reasoning", ""), "criteria": criteria_list,
+        })
+    else:                                             # level was skipped
+        if failed_at_level:
+            failed_name = LEVEL_DESCRIPTIONS.get(failed_at_level, f"Level {failed_at_level}")
+            skip_reason = (f"Level {failed_at_level} ({failed_name}) did not pass — "
+                           f"assessment halted before reaching this level.")
+        else:
+            skip_reason = "Assessment did not reach this level."
+        canonical = LEVEL_CRITERIA_NAMES.get(lvl, [])
+        level_wise_criteria.append({
+            "level": lvl, "level_name": lvl_name,
+            "status": "NOT_CHECKED", "checked": False,
+            "score": None, "reasoning": None,
+            "criteria": [{"name": c, "status": "NOT_CHECKED", "reason": skip_reason}
+                         for c in canonical],
+        })
 ```
 
 ### graph.py structure
@@ -619,15 +727,19 @@ When generating a new workflow using this context, the AI MUST:
 
 ### Output rules
 26. **All recommendations are aggregated** across every completed level in `format_result_node`.
-27. **`level_breakdown` always included** in the final result.
+27. **`level_breakdown` always included** in the final result — compact `{passed, score}` per level only.
 28. **`platform.api_call_log` always included** in the final result for debugging.
 29. **README.md always included** with: API usage, levels table, credentials reference, connector guide.
+30. **`level_wise_criteria` always included** in the final result — a list covering all 5 levels:
+    - Evaluated levels: full `{name, status, reason}` per criterion from LLM output.
+    - Skipped levels: canonical criteria from `LEVEL_CRITERIA_NAMES` with `status: NOT_CHECKED`
+      and a skip reason naming the exact level that caused the halt.
 
 ### Database & Persistence rules
-30. **Ensure all workflow executions persist results to the database**:
+31. **Ensure all workflow executions persist results to the database**:
     - The terminal node (`format_result_node`) must persist successful results with status `COMPLETED` using `AssessmentResultRepository.insert_assessment_result(...)`.
     - Catch failures/errors in `BaseWorkflow.run` and save a record with status `FAILED` in the database.
-31. **UUID primary key generation**:
+32. **UUID primary key generation**:
     - The database table has a primary key `id` of type `uuid` with NO default value.
     - Before calling the SQL insert statement in the repository, you must generate a new UUID4 string in Python (`str(uuid.uuid4())`) and pass it as the `id` value.
 
@@ -685,9 +797,15 @@ from api.models import WorkflowRequest  # inside a workflow file
 ## PART 7 — QUICK CHECKLIST BEFORE FINISHING A WORKFLOW
 
 - [ ] `workflows/<name>/__init__.py` exists with package docstring
-- [ ] `config.py` has `LEVEL_SCORE_RANGES`, `LEVEL_DESCRIPTIONS`, one prompt per level
+- [ ] `config.py` has `LEVEL_SCORE_RANGES`, `LEVEL_DESCRIPTIONS`, `LEVEL_CRITERIA_NAMES`, one prompt per level
+- [ ] `LEVEL_CRITERIA_NAMES` entries match the criteria listed in each LLM system prompt (no extras, no missing)
+- [ ] All LLM prompts return `passed_criteria`/`failed_criteria` as `{name, reason}` objects (not flat strings)
 - [ ] `nodes.py` has: collect node, one node per level, format_result node
+- [ ] Every level node stores the **full LLM result** in `level_results` (not just `{passed, score}`)
 - [ ] Every node checks `stop_assessment` at the top and returns `{}` if True
+- [ ] `format_result_node` builds `level_wise_criteria` for all 5 levels (PASSED/FAILED/NOT_CHECKED)
+- [ ] `format_result_node` parses criteria items with `isinstance(item, dict)` fallback
+- [ ] `level_breakdown` in final result is compact `{passed, score}` only
 - [ ] `graph.py` has TypedDict with `total=False` and all expected keys
 - [ ] `build_graph()` returns `graph.compile()`
 - [ ] `initialize_state()` raises `ValueError` for missing required fields
@@ -695,7 +813,7 @@ from api.models import WorkflowRequest  # inside a workflow file
 - [ ] `connectors/__init__.py` has `CONNECTOR_REGISTRY` dict
 - [ ] `connectors/base.py` has `BasePlatformConnector` ABC + dataclasses
 - [ ] Each connector logs every API call via `self._log()`
-- [ ] `README.md` exists with API usage + levels table + credential keys
+- [ ] `README.md` exists with API usage + levels table + `level_wise_criteria` field reference + credential keys
 - [ ] `api_routes_patch.py` shows the import + dict entry to add
 - [ ] All Python files pass `ast.parse()` (no syntax errors)
 - [ ] All async node calls use `await` (no blocking `.invoke()`)
@@ -703,5 +821,5 @@ from api.models import WorkflowRequest  # inside a workflow file
 ---
 
 *End of WORKFLOW_TEMPLATE_CONTEXT.md*
-*Version: 1.0.0 | Created from: pipeline_maturity workflow implementation*
+*Version: 2.0.0 | Updated to include: LEVEL_CRITERIA_NAMES, {name,reason} LLM criteria schema, level_wise_criteria output field*
 *Use this file in any new chat to generate a consistent, correctly-structured workflow.*

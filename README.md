@@ -238,6 +238,16 @@ curl http://localhost:8000/api/workflows
       "name": "Test Search Workflow",
       "description": "Search and analyse DevSecOps-related information…",
       "key": "test_search"
+    },
+    {
+      "name": "Pipeline Maturity Assessment",
+      "description": "Progressive 5-level build pipeline maturity assessment.",
+      "key": "build_domain"
+    },
+    {
+      "name": "Deployment Maturity Assessment",
+      "description": "Progressive 5-level deployment maturity assessment.",
+      "key": "deployment_domain"
     }
   ]
 }
@@ -422,16 +432,27 @@ devops-assessment-backend/
 │   ├── base_workflow.py       #    Abstract base with run() lifecycle
 │   ├── test_search/           #    Reference search workflow
 │   │   └── ...
-│   └── build_domain/          #    Build pipeline maturity assessment
+│   ├── build_domain/          #    Build pipeline maturity assessment
+│   │   ├── __init__.py
+│   │   ├── config.py          #    Prompts + score ranges + LEVEL_CRITERIA_NAMES
+│   │   ├── nodes.py           #    Assessment nodes, level_wise_criteria, DB persist
+│   │   ├── graph.py           #    LangGraph state + PipelineMaturityWorkflow
+│   │   └── connectors/        #    GitHub + Azure DevOps connectors
+│   └── deployment_domain/     #    Deployment maturity assessment
 │       ├── __init__.py
-│       ├── config.py          #    Prompts + score ranges
-│       ├── nodes.py           #    Assessment nodes & DB persist
-│       └── graph.py           #    LangGraph state + workflow class
+│       ├── config.py          #    Prompts + score ranges + LEVEL_CRITERIA_NAMES
+│       ├── nodes.py           #    Assessment nodes, level_wise_criteria, DB persist
+│       ├── graph.py           #    LangGraph state + DeploymentMaturityWorkflow
+│       └── connectors/        #    GitHub + Azure DevOps connectors
 │
 ├── api/                       # ── HTTP interface
 │   ├── __init__.py            #    Package docstring
 │   ├── models.py              #    Pydantic request/response models
 │   └── routes.py              #    FastAPI routes + workflow registry
+│
+├── workflows/workflow doc/
+│   ├── WORKFLOW_TEMPLATE_CONTEXT.md  # Template + rules for creating new workflows
+│   └── ...
 │
 ├── main.py                    # ── Application entry point
 ├── requirements.txt           # ── Pinned dependencies
@@ -441,6 +462,68 @@ devops-assessment-backend/
 ├── README.md                  # ── This file
 └── PROJECT_CONTEXT.md         # ── Deep-dive context for developers
 ```
+
+---
+
+## Assessment Output — `level_wise_criteria`
+
+Both `build_domain` and `deployment_domain` workflows include a `level_wise_criteria` field
+in every result. It covers **all 5 maturity levels** regardless of where the assessment stopped.
+
+```json
+"level_wise_criteria": [
+  {
+    "level": 1,
+    "level_name": "Build Process Definition",
+    "status": "PASSED",
+    "checked": true,
+    "score": 1.0,
+    "reasoning": "All three job types detected.",
+    "criteria": [
+      {"name": "Pipeline defined",    "status": "PASSED", "reason": "GitHub Actions YAML found."},
+      {"name": "Build step exists",   "status": "PASSED", "reason": "npm run build confirmed."},
+      {"name": "Test step exists",    "status": "PASSED", "reason": "pytest runs on every push."},
+      {"name": "Security scan step",  "status": "PASSED", "reason": "Trivy configured as blocking step."}
+    ]
+  },
+  {
+    "level": 2,
+    "level_name": "Artifact Pinning & SBOM",
+    "status": "FAILED",
+    "checked": true,
+    "score": 1.3,
+    "reasoning": "Digests used but SBOM and immutability missing.",
+    "criteria": [
+      {"name": "Image digests used",    "status": "PASSED", "reason": "Images pinned by sha256."},
+      {"name": "SBOM generation",       "status": "FAILED", "reason": "No SBOM tool detected."},
+      {"name": "Artifact immutability", "status": "FAILED", "reason": "Registry tags are mutable."}
+    ]
+  },
+  {
+    "level": 3,
+    "level_name": "Code Signing & Enforcement",
+    "status": "NOT_CHECKED",
+    "checked": false,
+    "score": null,
+    "reasoning": null,
+    "criteria": [
+      {"name": "GPG commit signing",    "status": "NOT_CHECKED", "reason": "Level 2 did not pass — assessment halted."},
+      {"name": "Branch protection rules","status": "NOT_CHECKED", "reason": "Level 2 did not pass — assessment halted."},
+      {"name": "Require signed commits", "status": "NOT_CHECKED", "reason": "Level 2 did not pass — assessment halted."}
+    ]
+  }
+]
+```
+
+| `status` value | `checked` | Meaning |
+|---|---|---|
+| `PASSED` | `true` | LLM evaluated and all criteria met |
+| `FAILED` | `true` | LLM evaluated but at least one criterion failed |
+| `NOT_CHECKED` | `false` | Level was skipped because a prior level failed |
+
+See each domain's `README.md` for the full 5-level example:
+- [build_domain/README.md](workflows/build_domain/README.md)
+- [deployment_domain/README.md](workflows/deployment_domain/README.md)
 
 ---
 

@@ -14,6 +14,35 @@ LEVEL_DESCRIPTIONS: dict[int, str] = {
     5: "Advanced Deployment Strategy",
 }
 
+# Canonical criterion names per level.
+# Used to populate `level_wise_criteria` entries for levels that were NOT
+# evaluated (i.e. a prior level failed and the fail-fast policy skipped them).
+LEVEL_CRITERIA_NAMES: dict[int, list[str]] = {
+    1: [
+        "Defined deployment process",
+        "Automated deployment",
+        "Inventory of production components",
+    ],
+    2: [
+        "Artifact inventory",
+        "Component trust evaluation",
+        "Secrets management",
+        "Decommissioning process",
+    ],
+    3: [
+        "Production dependency inventory",
+        "Credential handover (encrypted at rest)",
+        "Rolling updates / zero-downtime",
+    ],
+    4: [
+        "Same artifact across environments",
+        "Feature toggles",
+    ],
+    5: [
+        "Blue/Green deployment",
+    ],
+}
+
 LEVEL1_SYSTEM_PROMPT = """
 You are a deployment maturity assessor for Level 1: Deployment Process Foundation.
 
@@ -34,8 +63,8 @@ Respond ONLY with valid JSON (no markdown fences):
   "level": 1,
   "passed": <boolean>,
   "score": <float 0.0–1.0>,
-  "passed_criteria": ["<criterion>"],
-  "failed_criteria": ["<criterion>"],
+  "passed_criteria": [{"name": "<criterion>", "reason": "<brief one-sentence explanation>"}],
+  "failed_criteria": [{"name": "<criterion>", "reason": "<brief one-sentence explanation>"}],
   "reasoning": "<concise explanation>",
   "recommendations": [
     {"gap": "<specific gap>", "action": "<concrete action>", "priority": "<high|medium|low>", "estimated_effort": "<low|medium|high>"}
@@ -64,8 +93,8 @@ Respond ONLY with valid JSON (no markdown fences):
   "level": 2,
   "passed": <boolean>,
   "score": <float 1.0–2.0>,
-  "passed_criteria": ["<criterion>"],
-  "failed_criteria": ["<criterion>"],
+  "passed_criteria": [{"name": "<criterion>", "reason": "<brief one-sentence explanation>"}],
+  "failed_criteria": [{"name": "<criterion>", "reason": "<brief one-sentence explanation>"}],
   "reasoning": "<concise explanation>",
   "recommendations": [
     {"gap": "<specific gap>", "action": "<concrete action>", "priority": "<high|medium|low>", "estimated_effort": "<low|medium|high>"}
@@ -93,8 +122,8 @@ Respond ONLY with valid JSON (no markdown fences):
   "level": 3,
   "passed": <boolean>,
   "score": <float 2.0–3.0>,
-  "passed_criteria": ["<criterion>"],
-  "failed_criteria": ["<criterion>"],
+  "passed_criteria": [{"name": "<criterion>", "reason": "<brief one-sentence explanation>"}],
+  "failed_criteria": [{"name": "<criterion>", "reason": "<brief one-sentence explanation>"}],
   "reasoning": "<concise explanation>",
   "recommendations": [
     {"gap": "<specific gap>", "action": "<concrete action>", "priority": "<high|medium|low>", "estimated_effort": "<low|medium|high>"}
@@ -121,8 +150,8 @@ Respond ONLY with valid JSON (no markdown fences):
   "level": 4,
   "passed": <boolean>,
   "score": <float 3.0–4.0>,
-  "passed_criteria": ["<criterion>"],
-  "failed_criteria": ["<criterion>"],
+  "passed_criteria": [{"name": "<criterion>", "reason": "<brief one-sentence explanation>"}],
+  "failed_criteria": [{"name": "<criterion>", "reason": "<brief one-sentence explanation>"}],
   "reasoning": "<concise explanation>",
   "recommendations": [
     {"gap": "<specific gap>", "action": "<concrete action>", "priority": "<high|medium|low>", "estimated_effort": "<low|medium|high>"}
@@ -146,8 +175,8 @@ Respond ONLY with valid JSON (no markdown fences):
   "level": 5,
   "passed": <boolean>,
   "score": <float 4.0–5.0>,
-  "passed_criteria": ["<criterion>"],
-  "failed_criteria": ["<criterion>"],
+  "passed_criteria": [{"name": "<criterion>", "reason": "<brief one-sentence explanation>"}],
+  "failed_criteria": [{"name": "<criterion>", "reason": "<brief one-sentence explanation>"}],
   "reasoning": "<concise explanation>",
   "recommendations": [
     {"gap": "<specific gap>", "action": "<concrete action>", "priority": "<high|medium|low>", "estimated_effort": "<low|medium|high>"}

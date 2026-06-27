@@ -8,6 +8,7 @@ from workflows.deployment_domain.connectors.base import DeploymentPlatformData
 from workflows.deployment_domain.config import (
     LEVEL_SCORE_RANGES,
     LEVEL_DESCRIPTIONS,
+    LEVEL_CRITERIA_NAMES,
     LEVEL1_SYSTEM_PROMPT,
     LEVEL2_SYSTEM_PROMPT,
     LEVEL3_SYSTEM_PROMPT,
@@ -111,7 +112,7 @@ async def level1_node(state: dict) -> dict:
         result = await _call_llm_json(LEVEL1_SYSTEM_PROMPT, summary)
 
         level_results = dict(state.get("level_results") or {})
-        level_results["1"] = {"passed": result.get("passed"), "score": result.get("score")}
+        level_results["1"] = result  # store full LLM result for level_wise_criteria
 
         if not result.get("passed"):
             return {
@@ -142,7 +143,7 @@ async def level2_node(state: dict) -> dict:
         result = await _call_llm_json(LEVEL2_SYSTEM_PROMPT, summary)
 
         level_results = dict(state.get("level_results") or {})
-        level_results["2"] = {"passed": result.get("passed"), "score": result.get("score")}
+        level_results["2"] = result  # store full LLM result for level_wise_criteria
 
         if not result.get("passed"):
             return {
@@ -173,7 +174,7 @@ async def level3_node(state: dict) -> dict:
         result = await _call_llm_json(LEVEL3_SYSTEM_PROMPT, summary)
 
         level_results = dict(state.get("level_results") or {})
-        level_results["3"] = {"passed": result.get("passed"), "score": result.get("score")}
+        level_results["3"] = result  # store full LLM result for level_wise_criteria
 
         if not result.get("passed"):
             return {
@@ -204,7 +205,7 @@ async def level4_node(state: dict) -> dict:
         result = await _call_llm_json(LEVEL4_SYSTEM_PROMPT, summary)
 
         level_results = dict(state.get("level_results") or {})
-        level_results["4"] = {"passed": result.get("passed"), "score": result.get("score")}
+        level_results["4"] = result  # store full LLM result for level_wise_criteria
 
         if not result.get("passed"):
             return {
@@ -235,7 +236,7 @@ async def level5_node(state: dict) -> dict:
         result = await _call_llm_json(LEVEL5_SYSTEM_PROMPT, summary)
 
         level_results = dict(state.get("level_results") or {})
-        level_results["5"] = {"passed": result.get("passed"), "score": result.get("score")}
+        level_results["5"] = result  # store full LLM result for level_wise_criteria
 
         # Level 5 always terminates — pass or fail it's the final level
         final_score = result.get("score", LEVEL_SCORE_RANGES[5][0])
@@ -258,10 +259,13 @@ async def format_result_node(state: dict) -> dict:
         level_results = state.get("level_results") or {}
         current_level = state.get("current_level", 0)
         final_score = state.get("final_score", 0.0)
-        detail = state.get("last_level_detail") or {}
         error_message = state.get("error_message", "")
+        platform_data = state.get("platform_data")
 
-        if error_message and not detail:
+        # Detail for the current/last assessed level
+        detail = level_results.get(str(current_level), {})
+
+        if error_message and not level_results:
             final_result = {
                 "maturity_level": current_level,
                 "score": final_score,
@@ -272,19 +276,110 @@ async def format_result_node(state: dict) -> dict:
                     "reasoning": f"Assessment error: {error_message}",
                 },
                 "improvement_recommendations": [],
-                "level_breakdown": level_results,
-                "api_call_log": getattr(state.get("platform_data"), "api_call_log", []),
+                "level_wise_criteria": [],
+                "level_breakdown": {},
+                "api_call_log": getattr(platform_data, "api_call_log", []),
             }
         else:
             score_range = LEVEL_SCORE_RANGES.get(current_level, (0.0, 1.0))
+
+            # Aggregate recommendations across ALL evaluated levels
             all_recommendations = []
-            for rec in detail.get("recommendations", []):
-                all_recommendations.append({
-                    "gap": rec.get("gap", ""),
-                    "action": rec.get("action", ""),
-                    "priority": rec.get("priority", "medium"),
-                    "estimated_effort": rec.get("estimated_effort", "medium"),
-                })
+            for lvl_key in sorted(level_results.keys()):
+                for rec in level_results[lvl_key].get("recommendations", []):
+                    all_recommendations.append({
+                        "gap": rec.get("gap", ""),
+                        "action": rec.get("action", ""),
+                        "priority": rec.get("priority", "medium"),
+                        "estimated_effort": rec.get("estimated_effort", "medium"),
+                    })
+
+            # ----------------------------------------------------------
+            # Build level_wise_criteria — covers ALL 5 levels always.
+            # Checked levels  → per-criterion PASSED / FAILED from LLM.
+            # Skipped levels  → canonical names + NOT_CHECKED + skip reason.
+            # ----------------------------------------------------------
+            ALL_LEVELS = [1, 2, 3, 4, 5]
+
+            # Find the first failing level for skip reason text
+            failed_at_level: int | None = None
+            for _lvl in ALL_LEVELS:
+                if str(_lvl) in level_results and not level_results[str(_lvl)].get("passed", True):
+                    failed_at_level = _lvl
+                    break
+
+            level_wise_criteria: list[dict] = []
+            for lvl in ALL_LEVELS:
+                lvl_key = str(lvl)
+                lvl_name = LEVEL_DESCRIPTIONS.get(lvl, f"Level {lvl}")
+
+                if lvl_key in level_results:
+                    res = level_results[lvl_key]
+                    lvl_passed: bool = res.get("passed", False)
+
+                    criteria_list: list[dict] = []
+                    for item in res.get("passed_criteria", []):
+                        if isinstance(item, dict):
+                            crit_name = item.get("name", "")
+                            crit_reason = item.get("reason", "")
+                        else:
+                            crit_name = item
+                            crit_reason = ""
+                        criteria_list.append({"name": crit_name, "status": "PASSED", "reason": crit_reason})
+
+                    for item in res.get("failed_criteria", []):
+                        if isinstance(item, dict):
+                            crit_name = item.get("name", "")
+                            crit_reason = item.get("reason", "")
+                        else:
+                            crit_name = item
+                            crit_reason = ""
+                        criteria_list.append({"name": crit_name, "status": "FAILED", "reason": crit_reason})
+
+                    level_wise_criteria.append({
+                        "level": lvl,
+                        "level_name": lvl_name,
+                        "status": "PASSED" if lvl_passed else "FAILED",
+                        "checked": True,
+                        "score": res.get("score"),
+                        "reasoning": res.get("reasoning", ""),
+                        "criteria": criteria_list,
+                    })
+
+                else:
+                    if failed_at_level is not None:
+                        failed_name = LEVEL_DESCRIPTIONS.get(failed_at_level, f"Level {failed_at_level}")
+                        skip_reason = (
+                            f"Level {failed_at_level} ({failed_name}) did not pass — "
+                            f"assessment halted before reaching this level."
+                        )
+                    else:
+                        skip_reason = "Assessment did not reach this level."
+
+                    canonical = LEVEL_CRITERIA_NAMES.get(lvl, [])
+                    criteria_list = [
+                        {"name": c, "status": "NOT_CHECKED", "reason": skip_reason}
+                        for c in canonical
+                    ]
+
+                    level_wise_criteria.append({
+                        "level": lvl,
+                        "level_name": lvl_name,
+                        "status": "NOT_CHECKED",
+                        "checked": False,
+                        "score": None,
+                        "reasoning": None,
+                        "criteria": criteria_list,
+                    })
+
+            # Compact level_breakdown {passed, score} only
+            level_breakdown = {
+                lvl_key: {
+                    "passed": level_results[lvl_key].get("passed"),
+                    "score": level_results[lvl_key].get("score"),
+                }
+                for lvl_key in sorted(level_results.keys())
+            }
 
             final_result = {
                 "maturity_level": current_level,
@@ -296,22 +391,21 @@ async def format_result_node(state: dict) -> dict:
                     "reasoning": detail.get("reasoning", ""),
                 },
                 "improvement_recommendations": all_recommendations,
-                "level_breakdown": level_results,
-                "api_call_log": getattr(state.get("platform_data"), "api_call_log", []),
+                "level_wise_criteria": level_wise_criteria,
+                "level_breakdown": level_breakdown,
+                "api_call_log": getattr(platform_data, "api_call_log", []),
             }
 
         # Persist to database
         assessment_id = state.get("assessment_id")
         if assessment_id:
             try:
-                import uuid
                 from core.database import SessionLocal
                 from core.repositories.assessment_result_repository import AssessmentResultRepository
                 db = SessionLocal()
                 try:
                     AssessmentResultRepository.insert_assessment_result(
                         db=db,
-                        # id=str(uuid.uuid4()),
                         assessment_id=assessment_id,
                         status="COMPLETED",
                         domain_name="DEPLOYMENT",

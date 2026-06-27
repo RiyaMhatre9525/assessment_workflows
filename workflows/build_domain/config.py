@@ -29,6 +29,35 @@ LEVEL_DESCRIPTIONS: dict[int, str] = {
     5: "Artifact Signing & Integrity",
 }
 
+# Canonical criterion names per level.
+# Used to populate `level_wise_criteria` entries for levels that were NOT
+# evaluated (i.e. a prior level failed and the fail-fast policy skipped them).
+LEVEL_CRITERIA_NAMES: dict[int, list[str]] = {
+    1: [
+        "Pipeline defined",
+        "Build step exists",
+        "Test step exists",
+        "Security scan step exists",
+    ],
+    2: [
+        "Image digests used",
+        "SBOM generation",
+        "Artifact immutability",
+    ],
+    3: [
+        "GPG commit signing",
+        "Branch protection rules",
+        "Require signed commits",
+    ],
+    4: [
+        "Policy definition",
+    ],
+    5: [
+        "Cosign/in-toto signatures",
+        "Deployment verification",
+    ],
+}
+
 # ---------------------------------------------------------------------------
 # SBOM / signing detection patterns (used by nodes as fallback heuristics)
 # ---------------------------------------------------------------------------
@@ -65,8 +94,8 @@ Respond ONLY with valid JSON matching this exact schema:
   "level": 1,
   "passed": <boolean>,
   "score": <float 0.0–1.0>,
-  "passed_criteria": [<strings>],
-  "failed_criteria": [<strings>],
+  "passed_criteria": [{"name": "<criterion>", "reason": "<brief one-sentence explanation>"}],
+  "failed_criteria": [{"name": "<criterion>", "reason": "<brief one-sentence explanation>"}],
   "reasoning": "<concise explanation>",
   "recommendations": [
     {"gap": "<specific gap>", "action": "<concrete action>", "priority": "<high|medium|low>"}
@@ -99,8 +128,8 @@ Respond ONLY with valid JSON:
   "level": 2,
   "passed": <boolean>,
   "score": <float 1.0–2.0>,
-  "passed_criteria": [<strings>],
-  "failed_criteria": [<strings>],
+  "passed_criteria": [{"name": "<criterion>", "reason": "<brief one-sentence explanation>"}],
+  "failed_criteria": [{"name": "<criterion>", "reason": "<brief one-sentence explanation>"}],
   "reasoning": "<concise explanation>",
   "recommendations": [
     {"gap": "<specific gap>", "action": "<concrete action>", "priority": "<high|medium|low>"}
@@ -128,8 +157,8 @@ Respond ONLY with valid JSON:
   "level": 3,
   "passed": <boolean>,
   "score": <float 2.0–3.0>,
-  "passed_criteria": [<strings>],
-  "failed_criteria": [<strings>],
+  "passed_criteria": [{"name": "<criterion>", "reason": "<brief one-sentence explanation>"}],
+  "failed_criteria": [{"name": "<criterion>", "reason": "<brief one-sentence explanation>"}],
   "reasoning": "<concise explanation>",
   "recommendations": [
     {"gap": "<specific gap>", "action": "<concrete action>", "priority": "<high|medium|low>"}
@@ -157,8 +186,8 @@ Respond ONLY with valid JSON:
   "level": 5,
   "passed": <boolean>,
   "score": <float 4.0–5.0>,
-  "passed_criteria": [<strings>],
-  "failed_criteria": [<strings>],
+  "passed_criteria": [{"name": "<criterion>", "reason": "<brief one-sentence explanation>"}],
+  "failed_criteria": [{"name": "<criterion>", "reason": "<brief one-sentence explanation>"}],
   "reasoning": "<concise explanation>",
   "recommendations": [
     {"gap": "<specific gap>", "action": "<concrete action>", "priority": "<high|medium|low>"}

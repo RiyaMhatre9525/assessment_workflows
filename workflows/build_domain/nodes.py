@@ -24,6 +24,8 @@ from workflows.build_domain.config import (
     LEVEL2_SYSTEM_PROMPT,
     LEVEL3_SYSTEM_PROMPT,
     LEVEL5_SYSTEM_PROMPT,
+    LEVEL_CRITERIA_NAMES,
+    LEVEL_DESCRIPTIONS,
     LEVEL_SCORE_RANGES,
     SBOM_TOOLS,
 )
@@ -527,6 +529,96 @@ async def format_result_node(state: dict) -> dict:
         for rec in level_results[lvl].get("recommendations", []):
             all_recommendations.append(rec)
 
+    # ------------------------------------------------------------------
+    # Build level_wise_criteria — covers ALL 5 levels always.
+    #
+    # Checked levels  → per-criterion PASSED / FAILED derived from the
+    #                   LLM's passed_criteria / failed_criteria lists.
+    # Skipped levels  → canonical criterion names from config with
+    #                   NOT_CHECKED status and an explanatory skip_reason.
+    # ------------------------------------------------------------------
+    ALL_LEVELS = [1, 2, 3, 4, 5]
+
+    # Find the first level that failed so we can name it in skip reasons.
+    failed_at_level: int | None = None
+    for _lvl in ALL_LEVELS:
+        if _lvl in level_results and not level_results[_lvl].get("passed", True):
+            failed_at_level = _lvl
+            break
+
+    level_wise_criteria: list[dict] = []
+    for lvl in ALL_LEVELS:
+        lvl_name = LEVEL_DESCRIPTIONS.get(lvl, f"Level {lvl}")
+
+        if lvl in level_results:
+            # ---------- Level was evaluated by the LLM ----------
+            res = level_results[lvl]
+            lvl_passed: bool = res.get("passed", False)
+
+            criteria_list: list[dict] = []
+            for item in res.get("passed_criteria", []):
+                # Prompt now returns {name, reason} objects; fall back to plain string
+                if isinstance(item, dict):
+                    crit_name = item.get("name", "")
+                    crit_reason = item.get("reason", "")
+                else:
+                    crit_name = item
+                    crit_reason = ""
+                criteria_list.append({
+                    "name": crit_name,
+                    "status": "PASSED",
+                    "reason": crit_reason,
+                })
+            for item in res.get("failed_criteria", []):
+                if isinstance(item, dict):
+                    crit_name = item.get("name", "")
+                    crit_reason = item.get("reason", "")
+                else:
+                    crit_name = item
+                    crit_reason = ""
+                criteria_list.append({
+                    "name": crit_name,
+                    "status": "FAILED",
+                    "reason": crit_reason,
+                })
+
+            level_wise_criteria.append({
+                "level": lvl,
+                "level_name": lvl_name,
+                "status": "PASSED" if lvl_passed else "FAILED",
+                "checked": True,
+                "score": res.get("score"),
+                "reasoning": res.get("reasoning", ""),
+                "criteria": criteria_list,
+            })
+
+        else:
+            # ---------- Level was skipped (fail-fast) ----------
+            if failed_at_level is not None:
+                failed_name = LEVEL_DESCRIPTIONS.get(failed_at_level, f"Level {failed_at_level}")
+                skip_reason = (
+                    f"Level {failed_at_level} ({failed_name}) did not pass — "
+                    f"assessment halted before reaching this level."
+                )
+            else:
+                skip_reason = "Assessment did not reach this level."
+
+            canonical = LEVEL_CRITERIA_NAMES.get(lvl, [])
+            criteria_list = [
+                {"name": c, "status": "NOT_CHECKED", "reason": skip_reason}
+                for c in canonical
+            ]
+
+            level_wise_criteria.append({
+                "level": lvl,
+                "level_name": lvl_name,
+                "status": "NOT_CHECKED",
+                "checked": False,
+                "score": None,
+                "reasoning": None,
+                "criteria": criteria_list,
+            })
+
     final_result = {
         "maturity_level": current_level,
         "score": round(final_score, 2),
@@ -537,6 +629,7 @@ async def format_result_node(state: dict) -> dict:
             "reasoning": level_data.get("reasoning", ""),
         },
         "improvement_recommendations": all_recommendations,
+        "level_wise_criteria": level_wise_criteria,
         "platform": {
             "type": platform_data.platform_type if platform_data else "unknown",
             "repository": platform_data.repository if platform_data else "unknown",

@@ -50,7 +50,16 @@ Assessment stops at the first failed level. All criteria within a level must pas
 
 ---
 
+## Database Persistence
+
+The workflow implements a two-stage database persistence lifecycle:
+- **At start**: A database record is immediately created in the `assessment_result` table with `status="IN_PROGRESS"` using `AssessmentResultRepository.insert_assessment_result_returning_id`.
+- **At completion/failure**: Once background processing finishes (or fails), the same database entry is updated to status `COMPLETED` or `FAILED` with the full results using `AssessmentResultRepository.update_assessment_result`.
+
+---
+
 ## Result Schema
+
 
 **Successful Completion (Status: `COMPLETED`)**:
 ```json

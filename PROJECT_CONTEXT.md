@@ -136,20 +136,21 @@ BaseWorkflow.run(input_data)
     │
     ├──▶ graph.ainvoke(state)
     │       │
-    │       ├──▶ collect_platform_data_node(state)  →  connector collects REST API metadata
+    │       ├──▶ collect_platform_data_node(state)  →  inserts IN_PROGRESS to DB, connector collects REST API metadata
     │       ├──▶ level_nodes(state)                 →  calls LLM for level-by-level assessments
-    │       └──▶ format_result_node(state)          →  aggregates results, persists COMPLETED to DB
+    │       └──▶ format_result_node(state)          →  aggregates results, updates DB record to COMPLETED / FAILED
     │
     └──▶ extract_result(final_state)
             │
             ▼ (On Exception/Error)
-         BaseWorkflow.run() catches error → persists FAILED result to DB
+         BaseWorkflow.run() catches error → updates DB record to FAILED
 ```
 
 ### Data Flow
 
 Request JSON → Pydantic validation → `input_data` dict → Immediate response generated
-→ (Background task start) → `initialize_state()` → State TypedDict → Collect platform data → Progressive assessment levels → `format_result_node()` → Database insert (UUID primary key generated in Python) → Workflow completes.
+→ (Background task start) → `initialize_state()` → State TypedDict → Insert initial DB entry (`status="IN_PROGRESS"`, UUID primary key generated and stored as `result_id`) → Collect platform data → Progressive assessment levels → `format_result_node()` → Database update (updates existing `result_id` row to `COMPLETED`/`FAILED`) → Workflow completes.
+
 
 
 ---
@@ -1105,6 +1106,9 @@ print(response.json())
 |         |            | per-criterion detail. LLM prompts now return `{name, reason}` objects |
 |         |            | instead of flat strings. Added `LEVEL_CRITERIA_NAMES` to config.py |
 |         |            | in both domains. Fail-fast pattern 6 documented in PROJECT_CONTEXT.md. |
+| 1.3.0   | 2026-06-28 | Updated database persistence lifecycle to a two-stage model:   |
+|         |            | inserts IN_PROGRESS at start, updates to COMPLETED/FAILED at end |
+|         |            | (implemented in build_domain and deployment_domain workflows).   |
 
 *Maintain this table when making significant changes.*
 

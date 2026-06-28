@@ -140,34 +140,48 @@ class BaseWorkflow(ABC):
         except Exception as exc:
             self.logger.error("Workflow '%s' failed", self.name, exc_info=True)
             
-            # Persist FAILED state to database if assessment_id is available
+            # Attempt to record FAILED state in database if assessment_id or result_id is known
             assessment_id = None
+            result_id = None
             if 'state' in locals() and isinstance(state, dict):
                 assessment_id = state.get("assessment_id")
+                result_id = state.get("result_id")
             if not assessment_id and isinstance(input_data, dict):
                 assessment_id = input_data.get("assessment_id")
 
-            if assessment_id:
+            if result_id or assessment_id:
                 try:
                     from core.database import SessionLocal
                     from core.repositories.assessment_result_repository import AssessmentResultRepository
+                    
                     db = SessionLocal()
                     try:
                         domain_name = getattr(self, "domain_name", "UNKNOWN")
-                        AssessmentResultRepository.insert_assessment_result(
-                            db=db,
-                            assessment_id=assessment_id,
-                            status="FAILED",
-                            domain_name=domain_name,
-                            domain_score=0.0,
-                            reasoning=f"Workflow terminated due to error: {str(exc)}",
-                            improvement_recommendations=[],
-                            additional_info={"error": str(exc)}
-                        )
+                        if result_id:
+                            AssessmentResultRepository.update_assessment_result(
+                                db=db,
+                                result_id=result_id,
+                                status="FAILED",
+                                domain_score=0.0,
+                                reasoning=f"Workflow terminated due to error: {str(exc)}",
+                                improvement_recommendations=[],
+                                additional_info={"error": str(exc)}
+                            )
+                        else:
+                            AssessmentResultRepository.insert_assessment_result(
+                                db=db,
+                                assessment_id=assessment_id,
+                                status="FAILED",
+                                domain_name=domain_name,
+                                domain_score=0.0,
+                                reasoning=f"Workflow terminated due to error: {str(exc)}",
+                                improvement_recommendations=[],
+                                additional_info={"error": str(exc)}
+                            )
                     finally:
                         db.close()
                 except Exception as db_exc:
-                    self.logger.error("Failed to save FAILED status to database: %s", db_exc)
+                    self.logger.error("Failed to save/update FAILED status to database: %s", db_exc)
             raise
 ```
 
@@ -497,10 +511,11 @@ LEVEL2_SYSTEM_PROMPT = """..."""
 ```python
 # Node 0: always first — collect data from platform
 async def collect_platform_data_node(state: dict) -> dict:
-    # 1. Look up connector from CONNECTOR_REGISTRY using state["platform_type"]
-    # 2. Run health_check() — return error state if fails
-    # 3. Run connector.collect(repository) — return error state if fails
-    # 4. Return: {"platform_data": pd, "status": "data_collected", "stop_assessment": False}
+    # 1. Insert initial assessment result with status="IN_PROGRESS" using AssessmentResultRepository.insert_assessment_result_returning_id
+    # 2. Look up connector from CONNECTOR_REGISTRY using state["platform_type"]
+    # 3. Run health_check() — return error state and result_id if fails
+    # 4. Run connector.collect(repository) — return error state and result_id if fails
+    # 5. Return: {"platform_data": pd, "status": "data_collected", "stop_assessment": False, "result_id": result_id}
 
 # Nodes 1–N: one per maturity level
 async def level1_node(state: dict) -> dict:
@@ -516,15 +531,16 @@ async def level1_node(state: dict) -> dict:
 
 # Terminal node: always last
 async def format_result_node(state: dict) -> dict:
-    # 1. Read level_results, current_level, final_score from state
+    # 1. Read level_results, current_level, final_score, result_id from state
     # 2. Aggregate recommendations from ALL completed levels
     # 3. Build level_wise_criteria covering ALL 5 levels:
     #      - Checked levels  → per-criterion PASSED/FAILED from LLM {name, reason} objects
     #      - Skipped levels  → canonical names from LEVEL_CRITERIA_NAMES + NOT_CHECKED
     # 4. Build compact level_breakdown {passed, score} per level
     # 5. Assemble final_result dict with level_wise_criteria included
-    # 6. Persist to database with status COMPLETED
+    # 6. Update database record using AssessmentResultRepository.update_assessment_result with status COMPLETED (or FAILED if error_message is present)
     # 7. Return: {"final_result": {...}, "status": "completed"}
+
 
 
 # Helper: parse {name, reason} object or fall back to plain string
@@ -595,9 +611,11 @@ class PipelineMaturityState(TypedDict, total=False):
     stop_assessment: bool
     final_score: float
     error_message: str
+    result_id: str
     # Output
     final_result: dict
     status: str
+
 
 class PipelineMaturityWorkflow(BaseWorkflow):
     def __init__(self):
@@ -736,12 +754,15 @@ When generating a new workflow using this context, the AI MUST:
       and a skip reason naming the exact level that caused the halt.
 
 ### Database & Persistence rules
-31. **Ensure all workflow executions persist results to the database**:
-    - The terminal node (`format_result_node`) must persist successful results with status `COMPLETED` using `AssessmentResultRepository.insert_assessment_result(...)`.
-    - Catch failures/errors in `BaseWorkflow.run` and save a record with status `FAILED` in the database.
+31. **Ensure all workflow executions persist results to the database using a two-stage lifecycle**:
+    - **At start**: The first node (typically `collect_platform_data_node`) must insert an initial database record with `status="IN_PROGRESS"` using `AssessmentResultRepository.insert_assessment_result_returning_id(...)`. This generates and returns the record ID (`result_id`).
+    - **State management**: Store `result_id: str` in the workflow's State TypedDict.
+    - **At completion/early failure**: The terminal node (`format_result_node`) must update the existing record with the final scores, recommendations, and status (`COMPLETED` or `FAILED` if connection/collection failed) using `AssessmentResultRepository.update_assessment_result(...)` with the `result_id`.
+    - **Unhandled errors**: Catch unhandled runtime exceptions in `BaseWorkflow.run` and update the database record to status `FAILED` using `AssessmentResultRepository.update_assessment_result(...)` if `result_id` is present in state.
 32. **UUID primary key generation**:
     - The database table has a primary key `id` of type `uuid` with NO default value.
-    - Before calling the SQL insert statement in the repository, you must generate a new UUID4 string in Python (`str(uuid.uuid4())`) and pass it as the `id` value.
+    - The `insert_assessment_result_returning_id` method handles UUID generation internally and returns it. Ensure that the returned `result_id` is propagated and used for updates.
+
 
 ---
 

@@ -13,8 +13,10 @@
 - [Installation](#installation)
 - [Configuration](#configuration)
 - [API Documentation](#api-documentation)
+- [Database Persistence](#database-persistence)
 - [Creating New Workflows](#creating-new-workflows)
 - [Project Structure](#project-structure)
+
 - [Design Patterns](#design-patterns)
 - [Troubleshooting](#troubleshooting)
 - [Contributing](#contributing)
@@ -286,7 +288,16 @@ print(response.json())
 
 ---
 
+## Database Persistence
+
+Workflows follow a **two-stage database persistence lifecycle** to log execution state in real-time within the `assessment_result` table:
+1. **Initial Entry (`IN_PROGRESS`)**: Immediately when the background task begins, a database row is inserted with `status="IN_PROGRESS"` using the repository's `insert_assessment_result_returning_id()` method. The generated ID is tracked in the workflow state.
+2. **Final Update (`COMPLETED`/`FAILED`)**: Upon finishing execution or failing (due to API connectivity issues or unhandled exceptions), the same database row is updated with final scores, recommendations, and status (`COMPLETED` or `FAILED`) using `update_assessment_result()`.
+
+---
+
 ## Creating New Workflows
+
 
 ### Step 1: Create the workflow package
 

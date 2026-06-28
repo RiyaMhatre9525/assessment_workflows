@@ -58,9 +58,12 @@ For Azure DevOps:
 ```
 
 ### 2. Database Persistence
-Once background processing finishes, results are automatically saved to the `assessment_result` table.
+The workflow implements a two-stage database persistence lifecycle:
+- **At start**: A database record is immediately created in the `assessment_result` table with `status="IN_PROGRESS"` using `AssessmentResultRepository.insert_assessment_result_returning_id`.
+- **At completion/failure**: Once background processing finishes (or fails), the same database entry is updated to status `COMPLETED` or `FAILED` with the full results using `AssessmentResultRepository.update_assessment_result`.
 
 **Successful Completion (Status: `COMPLETED`)**:
+
 ```json
 {
   "maturity_level": 2,

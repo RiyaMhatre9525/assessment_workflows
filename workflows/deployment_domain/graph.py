@@ -26,6 +26,7 @@ class DeploymentDomainState(TypedDict, total=False):
     final_score: float
     last_level_detail: dict
     error_message: str
+    result_id: str
     final_result: dict
     status: str
 

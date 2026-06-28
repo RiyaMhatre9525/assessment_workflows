@@ -15,6 +15,8 @@ from workflows.deployment_domain.config import (
     LEVEL4_SYSTEM_PROMPT,
     LEVEL5_SYSTEM_PROMPT,
 )
+from core.database import SessionLocal
+from core.repositories.assessment_result_repository import AssessmentResultRepository
 
 logger = get_logger(__name__)
 
@@ -70,6 +72,25 @@ def _build_platform_summary(pd: DeploymentPlatformData) -> str:
 
 async def collect_platform_data_node(state: dict) -> dict:
     logger.info("── collect_platform_data_node: START ──")
+    
+    # Insert initial assessment result
+    assessment_id = state.get("assessment_id", "")
+    result_id = None
+    if assessment_id:
+        try:
+            db = SessionLocal()
+            result_id = AssessmentResultRepository.insert_assessment_result_returning_id(
+                db=db,
+                assessment_id=assessment_id,
+                status="IN_PROGRESS",
+                domain_name="DEPLOYMENT"
+            )
+            logger.info("Inserted initial assessment result with ID %s", result_id)
+        except Exception as db_exc:
+            logger.error("Failed to insert initial assessment result: %s", db_exc)
+        finally:
+            db.close()
+
     try:
         platform_type = state["platform_type"]
         repository = state.get("repository", "")
@@ -81,6 +102,7 @@ async def collect_platform_data_node(state: dict) -> dict:
                 "status": "error",
                 "error_message": f"Unsupported platform: {platform_type}",
                 "stop_assessment": True,
+                "result_id": result_id,
             }
 
         connector = connector_cls(credentials)
@@ -91,16 +113,28 @@ async def collect_platform_data_node(state: dict) -> dict:
                 "status": "error",
                 "error_message": f"Authentication failed for platform: {platform_type}",
                 "stop_assessment": True,
+                "result_id": result_id,
             }
         
         branch: str = state.get("branch", "")
         platform_data = await connector.collect(repository, branch=branch)
         logger.info("── collect_platform_data_node: collected %d pipelines ──", len(platform_data.pipelines))
-        return {"platform_data": platform_data, "status": "data_collected", "stop_assessment": False}
+        return {
+            "platform_data": platform_data,
+            "status": "data_collected",
+            "stop_assessment": False,
+            "result_id": result_id,
+        }
 
     except Exception as exc:
         logger.error("collect_platform_data_node failed: %s", exc, exc_info=True)
-        return {"status": "error", "error_message": str(exc), "stop_assessment": True}
+        return {
+            "status": "error",
+            "error_message": str(exc),
+            "stop_assessment": True,
+            "result_id": result_id,
+        }
+
 
 
 async def level1_node(state: dict) -> dict:
@@ -397,27 +431,47 @@ async def format_result_node(state: dict) -> dict:
             }
 
         # Persist to database
-        assessment_id = state.get("assessment_id")
-        if assessment_id:
+        result_id = state.get("result_id")
+        if result_id:
             try:
-                from core.database import SessionLocal
-                from core.repositories.assessment_result_repository import AssessmentResultRepository
                 db = SessionLocal()
                 try:
-                    AssessmentResultRepository.insert_assessment_result(
+                    AssessmentResultRepository.update_assessment_result(
                         db=db,
-                        assessment_id=assessment_id,
-                        status="COMPLETED",
-                        domain_name="DEPLOYMENT",
+                        result_id=result_id,
+                        status="FAILED" if error_message else "COMPLETED",
                         domain_score=float(final_score),
                         reasoning=final_result["assessment_details"]["reasoning"],
                         improvement_recommendations=final_result["improvement_recommendations"],
                         additional_info=final_result,
                     )
+                    logger.info("Assessment result updated for result_id=%s", result_id)
                 finally:
                     db.close()
             except Exception as db_exc:
-                logger.error("format_result_node: DB persist failed: %s", db_exc)
+                logger.error("format_result_node: DB update failed: %s", db_exc)
+        else:
+            assessment_id = state.get("assessment_id")
+            if assessment_id:
+                try:
+                    db = SessionLocal()
+                    try:
+                        AssessmentResultRepository.insert_assessment_result(
+                            db=db,
+                            assessment_id=assessment_id,
+                            status="FAILED" if error_message else "COMPLETED",
+                            domain_name="DEPLOYMENT",
+                            domain_score=float(final_score),
+                            reasoning=final_result["assessment_details"]["reasoning"],
+                            improvement_recommendations=final_result["improvement_recommendations"],
+                            additional_info=final_result,
+                        )
+                        logger.info("Assessment result saved for assessment_id=%s", assessment_id)
+                    finally:
+                        db.close()
+                except Exception as db_exc:
+                    logger.error("format_result_node: DB persist failed: %s", db_exc)
+
 
         logger.info("── format_result_node: level=%d score=%.2f ──", current_level, final_score)
         return {"final_result": final_result, "status": "completed"}

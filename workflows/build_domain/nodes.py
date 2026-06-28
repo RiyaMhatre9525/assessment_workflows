@@ -157,6 +157,24 @@ async def collect_platform_data_node(state: dict) -> dict:
     """
     logger.info("── collect_platform_data_node: START ──")
 
+    # Insert initial assessment result
+    assessment_id = state.get("assessment_id", "")
+    result_id = None
+    if assessment_id:
+        try:
+            db = SessionLocal()
+            result_id = AssessmentResultRepository.insert_assessment_result_returning_id(
+                db=db,
+                assessment_id=assessment_id,
+                status="IN_PROGRESS",
+                domain_name="BUILD"
+            )
+            logger.info("Inserted initial assessment result with ID %s", result_id)
+        except Exception as db_exc:
+            logger.error("Failed to insert initial assessment result: %s", db_exc)
+        finally:
+            db.close()
+
     from workflows.build_domain.connectors import CONNECTOR_REGISTRY
 
     platform_type: str = state.get("platform_type", "").lower()
@@ -172,6 +190,7 @@ async def collect_platform_data_node(state: dict) -> dict:
             "status": "error",
             "error_message": f"Unsupported platform '{platform_type}'. Supported: {supported}",
             "stop_assessment": True,
+            "result_id": result_id,
         }
 
     connector = connector_cls(credentials)
@@ -184,6 +203,7 @@ async def collect_platform_data_node(state: dict) -> dict:
             "status": "error",
             "error_message": "Platform credentials invalid or platform unreachable.",
             "stop_assessment": True,
+            "result_id": result_id,
         }
 
     # Collect data
@@ -202,6 +222,7 @@ async def collect_platform_data_node(state: dict) -> dict:
             "status": "error",
             "error_message": f"Data collection error: {exc}",
             "stop_assessment": True,
+            "result_id": result_id,
         }
 
     # Enrich SBOM detection from pipeline content
@@ -217,7 +238,9 @@ async def collect_platform_data_node(state: dict) -> dict:
         "platform_data": platform_data,
         "status": "data_collected",
         "stop_assessment": False,
+        "result_id": result_id,
     }
+
 
 
 # ---------------------------------------------------------------------------
@@ -491,24 +514,73 @@ async def format_result_node(state: dict) -> dict:
 
     error = state.get("error_message")
     if error:
-        return {
-            "final_result": {
-                "maturity_level": 0,
-                "score": 0.0,
-                "score_range": "N/A",
-                "assessment_details": {
-                    "passed_criteria": [],
-                    "failed_criteria": ["Platform connection or data collection failed"],
-                    "reasoning": error,
-                },
-                "improvement_recommendations": [
-                    {
-                        "gap": "Platform connectivity",
-                        "action": "Verify credentials and platform availability.",
-                        "priority": "high",
-                    }
-                ],
+        final_result = {
+            "maturity_level": 0,
+            "score": 0.0,
+            "score_range": "N/A",
+            "assessment_details": {
+                "passed_criteria": [],
+                "failed_criteria": ["Platform connection or data collection failed"],
+                "reasoning": error,
             },
+            "improvement_recommendations": [
+                {
+                    "gap": "Platform connectivity",
+                    "action": "Verify credentials and platform availability.",
+                    "priority": "high",
+                }
+            ],
+            "platform": {
+                "type": state.get("platform_type", "unknown"),
+                "repository": state.get("repository", "unknown"),
+                "api_call_log": [],
+            },
+            "level_wise_criteria": [],
+            "level_breakdown": {},
+        }
+
+        # Update DB entry to FAILED
+        result_id = state.get("result_id")
+        if result_id:
+            try:
+                db = SessionLocal()
+                AssessmentResultRepository.update_assessment_result(
+                    db=db,
+                    result_id=result_id,
+                    status="FAILED",
+                    domain_score=0.0,
+                    reasoning=error,
+                    improvement_recommendations=final_result["improvement_recommendations"],
+                    additional_info=final_result,
+                )
+                logger.info("Assessment result updated to FAILED for result_id=%s", result_id)
+            except Exception as exc:
+                logger.error("Failed to update assessment result: %s", exc, exc_info=True)
+            finally:
+                db.close()
+        else:
+            assessment_id = state.get("assessment_id", "")
+            if assessment_id:
+                try:
+                    db = SessionLocal()
+                    AssessmentResultRepository.insert_assessment_result(
+                        db=db,
+                        assessment_id=assessment_id,
+                        status="FAILED",
+                        domain_name="BUILD",
+                        domain_score=0.0,
+                        reasoning=error,
+                        improvement_recommendations=final_result["improvement_recommendations"],
+                        additional_info=final_result,
+                    )
+                    logger.info("Assessment result saved (fallback) for assessment_id=%s", assessment_id)
+                except Exception as exc:
+                    logger.error("Failed to save assessment result: %s", exc, exc_info=True)
+                finally:
+                    db.close()
+
+        return {
+            "final_result": final_result,
             "status": "error",
         }
 
@@ -651,26 +723,46 @@ async def format_result_node(state: dict) -> dict:
     )
 
     # ---- Persist result to database ----
-    assessment_id = state.get("assessment_id", "")
-    if assessment_id:
+    result_id = state.get("result_id")
+    if result_id:
         try:
             db = SessionLocal()
-            AssessmentResultRepository.insert_assessment_result(
+            AssessmentResultRepository.update_assessment_result(
                 db=db,
-                assessment_id=assessment_id,
+                result_id=result_id,
                 status="COMPLETED",
-                domain_name="BUILD",
                 domain_score=round(final_score, 2),
                 reasoning=level_data.get("reasoning", ""),
                 improvement_recommendations=all_recommendations,
                 additional_info=final_result,
             )
-            logger.info("Assessment result saved for assessment_id=%s", assessment_id)
+            logger.info("Assessment result updated for result_id=%s", result_id)
         except Exception as exc:
-            logger.error("Failed to save assessment result: %s", exc, exc_info=True)
+            logger.error("Failed to update assessment result: %s", exc, exc_info=True)
         finally:
             db.close()
     else:
-        logger.warning("No assessment_id in state – skipping DB persistence")
+        assessment_id = state.get("assessment_id", "")
+        if assessment_id:
+            try:
+                db = SessionLocal()
+                AssessmentResultRepository.insert_assessment_result(
+                    db=db,
+                    assessment_id=assessment_id,
+                    status="COMPLETED",
+                    domain_name="BUILD",
+                    domain_score=round(final_score, 2),
+                    reasoning=level_data.get("reasoning", ""),
+                    improvement_recommendations=all_recommendations,
+                    additional_info=final_result,
+                )
+                logger.info("Assessment result saved for assessment_id=%s", assessment_id)
+            except Exception as exc:
+                logger.error("Failed to save assessment result: %s", exc, exc_info=True)
+            finally:
+                db.close()
+        else:
+            logger.warning("No assessment_id or result_id in state – skipping DB persistence")
 
     return {"final_result": final_result, "status": "completed"}
+

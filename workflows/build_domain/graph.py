@@ -64,6 +64,8 @@ class PipelineMaturityState(TypedDict, total=False):
     stop_assessment: bool     # fail-fast flag
     final_score: float        # score at the stopping level
     error_message: str        # set on connector/LLM error
+    result_id: str            # generated assessment result database ID
+
 
     # --- Output ---
     final_result: dict

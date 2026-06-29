@@ -1,4 +1,6 @@
-Now you have to crate the workflow for build domain 
+Now you have to crate the workflow for deployment domain 
+
+strically the workflow name is deployment_domain
 
 where you i have to connect with github(github,azure devops github and more) and cloud platform (Azure ,amazon , gcp)
  cureently we are focusing on the azure devops github and Azure as cloud platform but in the future we have plan to connect with the other platform as will son do coding according to it
@@ -8,25 +10,25 @@ where you i have to connect with github(github,azure devops github and more) and
  
  if it passs the level 1 then you will called level 2 othere wise you will stop you task there and retnrn  matuirty of  that level 
  
- build domain 
+ deployment domain 
 	level 1:
-	     1)Defined build process :- check wther pipeline is exist or not
-		    Show your build pipeline configuration (e.g., Jenkinsfile, GitHub Actions workflow) and an exemplary job (build + test + security scan)
+	     1) Automated deployment process :-An automated deployment process implements the defined deployment steps using automation tools, ensuring consistency, auditability, and minimizing the risk of human errors or unauthorized changes.
+		 2) Defined deployment process :-A defined deployment process is a documented and standardized procedure for releasing software into production, ensuring consistency and reducing the risk of errors.
+		 3) Inventory of production components :-An inventory of production components is a complete, up-to-date list of all applications running in production. This enables effective vulnerability management, incident response, and compliance. Without it, organizations risk running unmaintained or unauthorized software
 	level 2:
-		1) Pinning of artifacts :-
-				1.Signing of containers :- Container technology automatically creates a hash for images, which can be used.
-				2.Immutable images:-Immutable images are an other way, e.g. by using a registry, which doesn't allow overriding of images.
-		2)SBOM of components :-
-				1.Trivy   2.Syft 
+		1) Defined decommissioning process :-The decommissioning process in the context of Docker and Kubernetes involves retiring Docker containers, images, and Kubernetes resources that are no longer needed or have been replaced. This process must be carefully executed to avoid impacting other services and applications.
+		2) Environment depending configuration parameters (secrets) :- Hashicorp Vault A tool for secrets management, encryption as a service, and privileged access management.
+		3) Evaluation of the trust of used components :- Each components source is evaluated to be trusted. For example the source, number of developers included, email configuration used by maintainers to prevent maintainer account theft, typo-squatting, ... Create image assessment criteria, perform an evaluation of images and create a whitelist of artifacts/container images/virtual machine images.
+		4) Inventory of production artifacts :- A documented inventory of artifacts in production like container images exists (gathered manually or automatically).
 	level 3:
-		1)Signing of code :-
-				1.Signing of commits:-Signing of commits in git
-				2.Enforcement of commit signing:-Usage of branch protection rules
+		1) Handover of confidential parameters :- Encryption ensures confidentiality of credentials e.g. from unauthorized access on the file system. Also, the usage of a credential management system can help protect credentials.
+		2) Inventory of production dependencies :- Delayed identification of components and their vulnerabilities in production. In case a vulnerability is known by the organization, it needs to be known where an artifacts with that vulnerability is deployed with which dependencies.
+		3) Rolling update on deployment :- A deployment without downtime is performed.
 	level 4:
+		1) Same artifact for environments :- Building of an artifact for different environments means that an untested artifact might reach the production environment.
+		2) Usage of feature toggles :- Using environment variables to enable or disable features can lead to a situation where a feature is accidentally enabled in the production environment.
 	level 5:
-		1)Signing of artifacts (Digitally signing artifacts for all steps during the build and especially docker images, helps to ensure their integrity and authenticity.)
-			1.Docker Content Trust
-			2.in-toto
+		1) Blue/Green Deployment :- Using a blue/green deployment strategy increases application availability and reduces deployment risk by simplifying the rollback process if a deployment fails.
 
 As the result you will be retnrn the resuit i want the level of the matuirty then score also reson why the current matuirty given what are the how we can iccrase the score where is eactly laking
 if matuirty level is 1 then score is (0-1)

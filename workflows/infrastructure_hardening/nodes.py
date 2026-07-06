@@ -12,6 +12,7 @@ WORKFLOW_TEMPLATE_CONTEXT.md Pattern 1.
 
 import json
 import re
+from datetime import datetime
 
 from langchain_core.messages import HumanMessage, SystemMessage
 
@@ -23,6 +24,7 @@ from core.repositories.assessment_result_repository import AssessmentResultRepos
 from workflows.infrastructure_hardening.config import (
     LEVEL_CRITERIA_NAMES,
     LEVEL_DESCRIPTIONS,
+    LEVEL_SCORE_RANGES,
     LEVEL_SYSTEM_PROMPTS,
 )
 from workflows.infrastructure_hardening.connectors import (
@@ -84,15 +86,18 @@ Cloud Platform: {platform_data.cloud_type}
 Repository: {platform_data.repository}
 
 --- Access Control ---
-Admin count: {ac.admin_count}
+Admin count (privileged role assignments): {ac.admin_count}
 MFA enforced for admins: {ac.mfa_enforced_admin_pct}%
 MFA enforced for all users: {ac.mfa_enforced_all_pct}%
+MFA data source / graph policy state: {platform_data.raw_metadata.get("graph_mfa_policy_state", platform_data.raw_metadata.get("mfa_data_source", "not_checked"))}
 Privilege review documented: {ac.privilege_review_documented}
 RBAC enabled: {ac.rbac_enabled}
-Dedicated security account: {ac.dedicated_security_account}
+Dedicated security account (e.g. Sentinel): {ac.dedicated_security_account}
+Microsoft Sentinel detected: {platform_data.raw_metadata.get("sentinel_detected", "not_checked")}
 
 --- Encryption ---
 Edge HTTPS enforced: {enc.edge_https_enforced}
+Edge HTTPS evidence source: {platform_data.raw_metadata.get("edge_https_source", "app_services" if platform_data.raw_metadata.get("app_service_count", 0) > 0 else "not_detected")}
 Internal mTLS enabled: {enc.internal_mtls_enabled}
 Encryption at rest enabled: {enc.encryption_at_rest_enabled} ({enc.disk_encryption_type or "none"})
 
@@ -119,11 +124,13 @@ Pre-deployment backup: {bkp.pre_deploy_backup}
 
 --- Environment ---
 Test/production environments separated: {env.test_env_separate}
+Has dedicated prod resource group: {platform_data.raw_metadata.get("has_prod_resource_group", "not_checked")}
+Has dedicated test resource group: {platform_data.raw_metadata.get("has_test_resource_group", "not_checked")}
 Production-parity local dev environments: {env.prod_parity_local_dev}
 Anonymized test data: {env.anonymized_test_data}
 
---- Raw metadata ---
-{json.dumps(platform_data.raw_metadata, default=str)[:2000]}
+--- Raw metadata (counts and signals) ---
+{json.dumps({k: v for k, v in platform_data.raw_metadata.items() if k not in ("github_org", "github_branch_protection", "ado_policies", "ado_admin_groups")}, default=str)[:2000]}
 """.strip()
 
 
@@ -142,14 +149,9 @@ async def collect_platform_data_node(state: dict) -> dict:
             assessment_id=assessment_id,
             status="IN_PROGRESS",
             domain_name=DOMAIN_NAME,
-            # domain_score=0.0,
-            # reasoning="Assessment in progress.",
-            # improvement_recommendations=[],
-            # additional_info={},
         )
     except Exception as exc:
         logger.error("Failed to insert IN_PROGRESS assessment record: %s", exc, exc_info=True)
-        db.close()
         return {
             "status": "error",
             "error_message": f"Failed to create assessment record: {exc}",
@@ -236,7 +238,23 @@ async def _run_level_node(state: dict, level: int) -> dict:
         summary = _build_platform_summary(platform_data)
         system_prompt = LEVEL_SYSTEM_PROMPTS[level]
 
+        # ── DEBUG: log exactly what evidence text is sent to the LLM ──
+        logger.info(
+            "── level%s_node: SENDING TO LLM ──\n%s",
+            level,
+            summary,
+        )
+
         result = await _call_llm_json(system_prompt, summary)
+
+        # ── DEBUG: log the raw LLM response ──
+        logger.info(
+            "── level%s_node: LLM RESPONSE ── passed=%s score=%s\n%s",
+            level,
+            result.get("passed"),
+            result.get("score"),
+            json.dumps(result, indent=2),
+        )
 
         if "error" in result:
             return {
@@ -383,7 +401,6 @@ async def format_result_node(state: dict) -> dict:
     }
 
     # --- score_range for the achieved level ---
-    from workflows.infrastructure_hardening.config import LEVEL_SCORE_RANGES
     score_range_tuple = LEVEL_SCORE_RANGES.get(current_level, (0.0, 0.0))
     score_range = f"{score_range_tuple[0]}-{score_range_tuple[1]}"
 
@@ -411,7 +428,7 @@ async def format_result_node(state: dict) -> dict:
         "platform_details": {
             "version_control": platform_data.vcs_type if platform_data else "",
             "cloud_platform": platform_data.cloud_type if platform_data else "",
-            "assessment_timestamp": __import__("datetime").datetime.utcnow().isoformat() + "Z",
+            "assessment_timestamp": datetime.utcnow().isoformat() + "Z",
         },
         "level_wise_criteria": level_wise_criteria,
         "level_breakdown": level_breakdown,
@@ -420,7 +437,7 @@ async def format_result_node(state: dict) -> dict:
         },
     }
 
-    # --- Persist final state to DB ---
+    # --- Persist final state to DB (additional_info = full final_result, same as all sibling workflows) ---
     status = "FAILED" if error_message else "COMPLETED"
     if result_id:
         db = SessionLocal()
@@ -432,11 +449,12 @@ async def format_result_node(state: dict) -> dict:
                 domain_score=final_score,
                 reasoning=final_result["assessment_details"]["reasoning"],
                 improvement_recommendations=all_recommendations,
-                additional_info={"level_breakdown": level_breakdown},
+                additional_info=final_result,
             )
         except Exception as exc:
             logger.error("Failed to update assessment record: %s", exc, exc_info=True)
         finally:
             db.close()
 
+    logger.info("── format_result_node: result=%s ──", status)
     return {"final_result": final_result, "status": "completed"}

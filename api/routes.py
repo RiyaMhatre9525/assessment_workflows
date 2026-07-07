@@ -16,6 +16,8 @@ from workflows.deployment_domain.graph import DeploymentMaturityWorkflow
 from workflows.application_hardening.graph import ApplicationHardeningWorkflow
 # patch_management domain
 from workflows.patch_management.graph import PatchManagementWorkflow
+# monitoring_domain graph
+from workflows.monitoring_domain.graph import MonitoringMaturityWorkflow
 
 logger: logging.Logger = get_logger(__name__)
 
@@ -26,6 +28,7 @@ WORKFLOWS: Dict[str, object] = {
     "deployment_domain": DeploymentMaturityWorkflow(), 
     "application_hardening": ApplicationHardeningWorkflow(),
     "patch_management": PatchManagementWorkflow(), 
+    "monitoring_domain": MonitoringMaturityWorkflow(),
 }
 
 router = APIRouter(prefix="/api", tags=["Workflows"])

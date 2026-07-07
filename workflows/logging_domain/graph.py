@@ -28,6 +28,7 @@ class LoggingMaturityState(TypedDict, total=False):
     vcs_platform_type: str
     vcs_credentials: dict
     repository: str
+    branch: str
     cloud_platform_type: str
     cloud_credentials: dict
     # Intermediate
@@ -117,6 +118,7 @@ class LoggingMaturityWorkflow(BaseWorkflow):
             "vcs_platform_type": input_data["vcs_platform_type"],
             "vcs_credentials": input_data["vcs_credentials"],
             "repository": input_data["repository"],
+            "branch": input_data.get("branch", "").strip(),
             "cloud_platform_type": input_data["cloud_platform_type"],
             "cloud_credentials": input_data["cloud_credentials"],
             "level_results": {},

@@ -19,6 +19,7 @@ POST /api/execute/logging_domain
     "assessment_id": "33333333-3333-3333-3333-333333333333",
     "vcs_platform_type": "github",
     "repository": "myorg/myrepo",
+    "branch": "main",
     "vcs_credentials": {
       "token": "<github-pat>"
     },
@@ -38,6 +39,7 @@ For Azure DevOps as the VCS platform, use:
 {
   "vcs_platform_type": "azure_devops",
   "repository": "myorg/myproject/myrepo",
+  "branch": "main",
   "vcs_credentials": { "organization": "myorg", "pat": "<azure-devops-pat>" }
 }
 ```

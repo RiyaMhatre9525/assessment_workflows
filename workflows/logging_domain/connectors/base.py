@@ -108,7 +108,7 @@ class BaseVCSConnector(ABC):
         """Return True if credentials/connectivity are valid."""
 
     @abstractmethod
-    async def collect(self, repository: str) -> VCSLoggingData:
+    async def collect(self, repository: str, branch: str = "") -> VCSLoggingData:
         """Collect logging-relevant configuration from the VCS repository."""
 
 

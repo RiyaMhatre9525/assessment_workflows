@@ -69,7 +69,7 @@ class AzureDevOpsVCSConnector(BaseVCSConnector):
             logger.error("AzureDevOpsVCSConnector health_check failed: %s", exc, exc_info=True)
             return False
 
-    async def collect(self, repository: str) -> VCSLoggingData:
+    async def collect(self, repository: str, branch: str = "") -> VCSLoggingData:
         pat = self.credentials.get("pat", "")
         headers = _auth_header(pat) if pat else {}
         parts = repository.split("/")
@@ -82,6 +82,8 @@ class AzureDevOpsVCSConnector(BaseVCSConnector):
                     f"{AZDO_API_BASE}/{org}/{project}/_apis/git/repositories/{repo}/items"
                     f"?path=/{candidate}&api-version={API_VERSION}"
                 )
+                if branch:
+                    url += f"&versionDescriptor.version={branch}"
                 self._log(f"GET {url}")
                 try:
                     resp = await client.get(url, headers=headers)
@@ -112,6 +114,8 @@ class AzureDevOpsVCSConnector(BaseVCSConnector):
                     f"{AZDO_API_BASE}/{org}/{project}/_apis/git/repositories/{repo}/items"
                     f"?path=/{candidate}&api-version={API_VERSION}"
                 )
+                if branch:
+                    url += f"&versionDescriptor.version={branch}"
                 self._log(f"GET {url}")
                 try:
                     resp = await client.get(url, headers=headers)

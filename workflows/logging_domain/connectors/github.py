@@ -64,7 +64,7 @@ class GitHubVCSConnector(BaseVCSConnector):
             logger.error("GitHubVCSConnector health_check failed: %s", exc, exc_info=True)
             return False
 
-    async def collect(self, repository: str) -> VCSLoggingData:
+    async def collect(self, repository: str, branch: str = "") -> VCSLoggingData:
         token = self.credentials.get("token")
         headers = {"Authorization": f"Bearer {token}"} if token else {}
         data = VCSLoggingData(platform_type="github", repository=repository)
@@ -92,6 +92,8 @@ class GitHubVCSConnector(BaseVCSConnector):
             # 2. Scan CI workflow / config content for security-event & correlation signals
             for source in data.log_sources:
                 url = f"{GITHUB_API_BASE}/repos/{repository}/contents/{source.path}"
+                if branch:
+                    url += f"?ref={branch}"
                 self._log(f"GET {url}")
                 try:
                     resp = await client.get(url, headers=headers)
@@ -115,6 +117,8 @@ class GitHubVCSConnector(BaseVCSConnector):
             # 3. Check for a documented PII logging policy
             for candidate in PII_POLICY_CANDIDATES:
                 url = f"{GITHUB_API_BASE}/repos/{repository}/contents/{candidate}"
+                if branch:
+                    url += f"?ref={branch}"
                 self._log(f"GET {url}")
                 try:
                     resp = await client.get(url, headers=headers)

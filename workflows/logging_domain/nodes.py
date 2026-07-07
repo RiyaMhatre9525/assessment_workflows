@@ -159,6 +159,7 @@ async def collect_platform_data_node(state: dict) -> dict:
     vcs_credentials = state.get("vcs_credentials", {})
     cloud_credentials = state.get("cloud_credentials", {})
     repository = state.get("repository")
+    branch = state.get("branch", "").strip()
 
     vcs_connector_cls = VCS_CONNECTOR_REGISTRY.get(vcs_platform_type)
     cloud_connector_cls = CLOUD_CONNECTOR_REGISTRY.get(cloud_platform_type)
@@ -204,7 +205,7 @@ async def collect_platform_data_node(state: dict) -> dict:
         }
 
     try:
-        vcs_data = await vcs_connector.collect(repository)
+        vcs_data = await vcs_connector.collect(repository, branch=branch)
     except Exception as exc:
         logger.error("VCS collect() failed: %s", exc, exc_info=True)
         return {
@@ -246,6 +247,7 @@ async def _level_node(state: dict, level: int) -> dict:
     logger.info("── level%d_node: START ──", level)
     try:
         summary = _build_platform_summary(state)
+        logger.info("level%d_node: Data provided to LLM:\n%s", level, summary)
         result = await _call_llm_json(LEVEL_PROMPTS[level], summary)
 
         if "error" in result:

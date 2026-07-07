@@ -1,5 +1,6 @@
 """GitHub VCS connector — collects logging-configuration signals from a repo."""
 
+import base64
 import httpx
 
 from core.logger import get_logger
@@ -72,22 +73,64 @@ class GitHubVCSConnector(BaseVCSConnector):
         async with httpx.AsyncClient(timeout=20) as client:
             # 1. Search for logging config files
             for candidate in LOGGING_CONFIG_CANDIDATES:
-                url = f"{GITHUB_API_BASE}/search/code"
-                params = {"q": f"filename:{candidate} repo:{repository}"}
-                self._log(f"GET {url} q={params['q']}")
-                try:
-                    resp = await client.get(url, headers=headers, params=params)
-                    if resp.status_code == 200 and resp.json().get("total_count", 0) > 0:
-                        data.logging_config_files_found.append(candidate)
-                        for item in resp.json().get("items", [])[:5]:
+                if candidate == ".github/workflows":
+                    url = f"{GITHUB_API_BASE}/repos/{repository}/contents/.github/workflows"
+                    if branch:
+                        url += f"?ref={branch}"
+                    self._log(f"GET {url}")
+                    try:
+                        resp = await client.get(url, headers=headers)
+                        if resp.status_code == 200 and isinstance(resp.json(), list):
+                            data.logging_config_files_found.append(candidate)
+                            for item in resp.json():
+                                if item.get("type") == "file" and item.get("name", "").endswith((".yml", ".yaml")):
+                                    data.log_sources.append(
+                                        LogSourceInfo(
+                                            name=item.get("name", ""),
+                                            path=item.get("path", ""),
+                                        )
+                                    )
+                    except Exception as exc:
+                        logger.warning("GitHub contents fetch failed for %s: %s", candidate, exc)
+                else:
+                    # Try to fetch directly from the branch ref first
+                    url = f"{GITHUB_API_BASE}/repos/{repository}/contents/{candidate}"
+                    if branch:
+                        url += f"?ref={branch}"
+                    self._log(f"GET {url}")
+                    found_directly = False
+                    try:
+                        resp = await client.get(url, headers=headers)
+                        if resp.status_code == 200:
+                            data.logging_config_files_found.append(candidate)
                             data.log_sources.append(
                                 LogSourceInfo(
-                                    name=item.get("name", candidate),
-                                    path=item.get("path", candidate),
+                                    name=candidate,
+                                    path=candidate,
                                 )
                             )
-                except Exception as exc:
-                    logger.warning("GitHub search failed for %s: %s", candidate, exc)
+                            found_directly = True
+                    except Exception as exc:
+                        logger.warning("GitHub direct fetch failed for %s: %s", candidate, exc)
+
+                    if not found_directly:
+                        # Fallback: Search code in repo (usually queries default branch)
+                        url = f"{GITHUB_API_BASE}/search/code"
+                        params = {"q": f"filename:{candidate} repo:{repository}"}
+                        self._log(f"GET {url} q={params['q']}")
+                        try:
+                            resp = await client.get(url, headers=headers, params=params)
+                            if resp.status_code == 200 and resp.json().get("total_count", 0) > 0:
+                                data.logging_config_files_found.append(candidate)
+                                for item in resp.json().get("items", [])[:5]:
+                                    data.log_sources.append(
+                                        LogSourceInfo(
+                                            name=item.get("name", candidate),
+                                            path=item.get("path", candidate),
+                                        )
+                                    )
+                        except Exception as exc:
+                            logger.warning("GitHub search failed for %s: %s", candidate, exc)
 
             # 2. Scan CI workflow / config content for security-event & correlation signals
             for source in data.log_sources:
@@ -98,19 +141,24 @@ class GitHubVCSConnector(BaseVCSConnector):
                 try:
                     resp = await client.get(url, headers=headers)
                     if resp.status_code == 200:
-                        raw = resp.text.lower()
-                        source.raw_content = resp.text[:2000]
-                        source.ships_to_centralized_system = any(
-                            kw in raw for kw in ["splunk", "elk", "elasticsearch",
-                                                  "datadog", "azure monitor", "log analytics"]
-                        )
-                        source.logs_security_events = any(kw in raw for kw in SECURITY_EVENT_KEYWORDS)
-                        source.logs_login_logout = any(kw in raw for kw in ["login", "logout", "signin", "signout"])
-                        source.logs_user_lifecycle_events = any(
-                            kw in raw for kw in ["user_created", "user_deleted", "user_changed", "user.updated"]
-                        )
-                        if any(kw in raw for kw in CORRELATION_ID_KEYWORDS):
-                            data.correlation_ids_detected = True
+                        payload = resp.json()
+                        content_b64 = payload.get("content", "")
+                        if content_b64:
+                            raw_bytes = base64.b64decode(content_b64)
+                            raw = raw_bytes.decode("utf-8", errors="replace")
+                            source.raw_content = raw[:2000]
+                            raw_lower = raw.lower()
+                            source.ships_to_centralized_system = any(
+                                kw in raw_lower for kw in ["splunk", "elk", "elasticsearch",
+                                                          "datadog", "azure monitor", "log analytics"]
+                            )
+                            source.logs_security_events = any(kw in raw_lower for kw in SECURITY_EVENT_KEYWORDS)
+                            source.logs_login_logout = any(kw in raw_lower for kw in ["login", "logout", "signin", "signout"])
+                            source.logs_user_lifecycle_events = any(
+                                kw in raw_lower for kw in ["user_created", "user_deleted", "user_changed", "user.updated"]
+                            )
+                            if any(kw in raw_lower for kw in CORRELATION_ID_KEYWORDS):
+                                data.correlation_ids_detected = True
                 except Exception as exc:
                     logger.warning("GitHub content fetch failed for %s: %s", source.path, exc)
 

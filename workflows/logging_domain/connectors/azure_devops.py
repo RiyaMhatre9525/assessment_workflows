@@ -83,7 +83,7 @@ class AzureDevOpsVCSConnector(BaseVCSConnector):
                     f"?path=/{candidate}&api-version={API_VERSION}"
                 )
                 if branch:
-                    url += f"&versionDescriptor.version={branch}"
+                    url += f"&versionDescriptor.version={branch}&versionDescriptor.versionType=branch"
                 self._log(f"GET {url}")
                 try:
                     resp = await client.get(url, headers=headers)
@@ -115,7 +115,7 @@ class AzureDevOpsVCSConnector(BaseVCSConnector):
                     f"?path=/{candidate}&api-version={API_VERSION}"
                 )
                 if branch:
-                    url += f"&versionDescriptor.version={branch}"
+                    url += f"&versionDescriptor.version={branch}&versionDescriptor.versionType=branch"
                 self._log(f"GET {url}")
                 try:
                     resp = await client.get(url, headers=headers)

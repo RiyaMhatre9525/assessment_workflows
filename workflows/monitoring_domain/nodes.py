@@ -49,6 +49,8 @@ LEVEL_PROMPTS = {
 # ─────────────────────────────────────────────────────────────────────────
 async def _call_llm_json(system_prompt: str, user_content: str) -> dict:
     llm = LLMProvider().get_llm()
+    logger.info("Calling LLM with system prompt:\n%s", system_prompt)
+    logger.info("Calling LLM with user content:\n%s", user_content)
     try:
         response = await llm.ainvoke([
             SystemMessage(content=system_prompt),
@@ -118,23 +120,20 @@ def _should_stop(state: dict) -> str:
 async def collect_platform_data_node(state: dict) -> dict:
     logger.info("── collect_platform_data: START ──")
 
-    db = SessionLocal()
+    result_id = None
     try:
-        result_id = AssessmentResultRepository.insert_assessment_result_returning_id(
-            db=db,
-            assessment_id=state.get("assessment_id"),
-            status="IN_PROGRESS",
-            domain_name=DOMAIN_NAME,
-        )
+        db = SessionLocal()
+        try:
+            result_id = AssessmentResultRepository.insert_assessment_result_returning_id(
+                db=db,
+                assessment_id=state.get("assessment_id"),
+                status="IN_PROGRESS",
+                domain_name=DOMAIN_NAME,
+            )
+        finally:
+            db.close()
     except Exception as exc:
-        logger.error("Failed to insert initial assessment result: %s", exc, exc_info=True)
-        return {
-            "status": "error",
-            "error_message": f"Failed to create assessment record: {exc}",
-            "stop_assessment": True,
-        }
-    finally:
-        db.close()
+        logger.error("Failed to insert initial assessment result: %s", exc)
 
     vcs_platform_type = state.get("vcs_platform_type")
     cloud_platform_type = state.get("cloud_platform_type")

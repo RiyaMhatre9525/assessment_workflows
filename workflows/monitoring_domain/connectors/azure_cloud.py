@@ -46,21 +46,32 @@ class AzureCloudConnector(BasePlatformConnector):
             "client_secret": self.client_secret,
             "scope": "https://management.azure.com/.default",
         }
-        resp = await client.post(url, data=payload)
-        resp.raise_for_status()
-        self._token = resp.json()["access_token"]
-        return self._token
+        try:
+            resp = await client.post(url, data=payload)
+            resp.raise_for_status()
+            self._token = resp.json()["access_token"]
+            return self._token
+        except httpx.HTTPStatusError as exc:
+            logger.error("OAuth token request failed with status %s: %s", exc.response.status_code, exc.response.text)
+            raise
+        except Exception as exc:
+            logger.error("OAuth token request failed: %s", exc)
+            raise
 
     def _headers(self, token: str) -> dict:
         return {"Authorization": f"Bearer {token}"}
 
     async def health_check(self) -> bool:
         try:
+            logger.info("Starting Azure Cloud health check: tenant_id=%s, client_id=%s, subscription_id=%s",
+                        self.tenant_id, self.client_id, self.subscription_id)
             async with httpx.AsyncClient(timeout=15) as client:
                 token = await self._get_token(client)
                 url = f"{ARM_BASE}/subscriptions/{self.subscription_id}?api-version=2022-12-01"
                 self._log(f"GET {url}")
                 resp = await client.get(url, headers=self._headers(token))
+                if resp.status_code != 200:
+                    logger.error("Subscription health check failed with status %s: %s", resp.status_code, resp.text)
                 return resp.status_code == 200
         except Exception as exc:
             logger.error("Azure Cloud health_check failed: %s", exc, exc_info=True)

@@ -50,11 +50,11 @@ class GitHubConnector(BaseVCSConnector):
             "Accept": "application/vnd.github+json",
         }
         org = repository.split("/")[0] if "/" in repository else repository
-        branch = self.credentials.get("branch", "main")
+        branch = self.credentials.get("branch", "main-react")
 
         async with httpx.AsyncClient(timeout=20.0) as client:
             # --- Org-wide MFA enforcement ---
-            org_url = f"{GITHUB_API_BASE}/orgs/{org}"
+            org_url = f"{GITHUB_API_BASE}/users/{org}"
             self._log(f"GET {org_url}")
             org_json: dict = {}
             try:
@@ -71,7 +71,7 @@ class GitHubConnector(BaseVCSConnector):
             platform_data.access_control.mfa_enforced_all_pct = 100.0 if mfa_required else 0.0
 
             # --- Org admin count (proxy for admin count <=5 criterion) ---
-            members_url = f"{GITHUB_API_BASE}/orgs/{org}/members?role=admin&per_page=100"
+            members_url = f"{GITHUB_API_BASE}/repos/{repository}/collaborators?affiliation=direct&per_page=100"
             self._log(f"GET {members_url}")
             admins: list = []
             try:
@@ -83,7 +83,9 @@ class GitHubConnector(BaseVCSConnector):
             except Exception as exc:
                 logger.error("GitHub admins fetch failed: %s", exc, exc_info=True)
             if isinstance(admins, list):
-                platform_data.access_control.admin_count = len(admins)
+                platform_data.access_control.admin_count = len(
+                    [a for a in admins if a.get("permissions", {}).get("admin") is True]
+                )
 
             # --- Branch protection (RBAC + immutable-history signal) ---
             branch_url = f"{GITHUB_API_BASE}/repos/{repository}/branches/{branch}/protection"

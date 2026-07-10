@@ -17,6 +17,8 @@ from workflows.application_hardening.graph import ApplicationHardeningWorkflow
 # patch_management domain
 from workflows.patch_management.graph import PatchManagementWorkflow
 from workflows.Dynamic_Depth_for_Infrastructure.graph import DynamicDepthForInfrastructureWorkflow
+from workflows.Static_Depth_for_Infrastructure.graph import StaticDepthForInfrastructureWorkflow
+
 
 
 logger: logging.Logger = get_logger(__name__)
@@ -29,6 +31,7 @@ WORKFLOWS: Dict[str, object] = {
     "application_hardening": ApplicationHardeningWorkflow(),
     "patch_management": PatchManagementWorkflow(), 
     "Dynamic_Depth_for_Infrastructure": DynamicDepthForInfrastructureWorkflow(),
+    "Static_Depth_for_Infrastructure": StaticDepthForInfrastructureWorkflow(),
 
 }
 

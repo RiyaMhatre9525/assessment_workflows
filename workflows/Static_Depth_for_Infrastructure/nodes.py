@@ -205,8 +205,24 @@ def _platform_summary(platform_data: InfrastructureDepthPlatformData) -> str:
     if relevant_files:
         lines.append(f"Relevant IaC/deployment files found: {relevant_files}")
 
+    # ---------------- ADD THIS BLOCK ----------------
+    lines.append("\nDetailed detected evidence:")
+
+    for criterion, matches in sc.detected_signals.items():
+        lines.append(f"{criterion}")
+        for match in matches:
+            lines.append(f"  - {match}")
+
+    if platform_data.cloud:
+        lines.append("\nCloud evidence:")
+        for criterion, matches in platform_data.cloud.detected_signals.items():
+            lines.append(f"{criterion}")
+            for match in matches:
+                lines.append(f"  - {match}")
+    # -------------- END OF BLOCK --------------------
+
     for pipeline in sc.pipeline_definitions[:5]:
-        snippet = pipeline.raw_content[:800]
+        snippet = pipeline.raw_content[:5000]
         lines.append(f"\n--- Pipeline: {pipeline.name} ({pipeline.path}) ---\n{snippet}")
 
     return "\n".join(lines)
@@ -314,11 +330,20 @@ def _make_level_node(level: int, system_prompt: str):
 
         try:
             platform_data = state["platform_data"]
+
+            print("========== DETECTED SIGNALS ==========")
+            print(platform_data)
+
             summary = _platform_summary(platform_data)
             llm_result = await _call_llm_json(system_prompt, summary)
 
             evidence_keys = _combined_evidence_keys(platform_data)
             llm_result = _apply_evidence_floor(level, llm_result, evidence_keys)
+
+            print("\n========== LLM RESULT ==========")
+            print(llm_result)
+            print("================================")
+
             result = _finalize_level_result(level, llm_result)
 
             level_results = dict(state.get("level_results", {}))

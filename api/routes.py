@@ -65,16 +65,15 @@ async def execute_workflow(
             error=str(exc),
         )
 
-    # Queue the workflow run in the background
-    background_tasks.add_task(workflow.run, request.input_data)
-    
-    logger.info("Scheduled workflow execution for '%s' in the background", workflow_name)
+    # Execute immediately (testing only)
+    result = await workflow.run(request.input_data)
 
     return WorkflowResponse(
         workflow=workflow_name,
-        status="in_progress",
-        result=None,
+        status="completed",
+        result=result,
     )
+
 
 @router.get("/workflows")
 async def list_workflows() -> dict:

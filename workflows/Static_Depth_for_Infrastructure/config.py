@@ -132,8 +132,21 @@ Criteria (ALL must pass to advance):
    infrastructure components are scanned for malware or malicious
    components.
 2. Test for New Image Version — the pipeline/tooling determines whether
-   newer container base images are available (e.g. Ubuntu, Alpine, NGINX,
-   .NET runtime, Node runtime).
+newer container base images are available (e.g. Ubuntu, Alpine, NGINX,
+.NET runtime, Node runtime).
+
+Evidence that satisfies this criterion includes tools or pipeline steps
+such as Renovate, Dependabot, Docker Scout, Base Image Update checks,
+image update automation, or any automated mechanism that detects newer
+container base image versions. If such evidence is present, this
+criterion MUST be marked as PASSED.
+
+IMPORTANT:
+Do not fail a criterion if matching evidence already exists in the
+Evidence section. The detected evidence is authoritative.
+The evidence list may contain terms such as "renovate",
+"base image update", "docker scout", or "dependabot".
+Treat these as valid evidence for "Test for New Image Version".
 
 Scoring (2.0-3.0):
   2.0: Neither criterion met.

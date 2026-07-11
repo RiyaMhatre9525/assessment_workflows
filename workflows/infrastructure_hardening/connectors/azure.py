@@ -244,7 +244,7 @@ class AzureCloudConnector(BaseCloudConnector):
                 if resp.status_code == 200:
                     sites = resp.json().get("value", [])
                     if sites:
-                        https_enforced = all(
+                        https_enforced = any(
                             s.get("properties", {}).get("httpsOnly", False)
                             for s in sites
                         )

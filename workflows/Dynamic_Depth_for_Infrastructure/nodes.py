@@ -195,10 +195,16 @@ async def level2_node(state: dict) -> dict:
         )
         result = await _async_llm(LEVEL2_SYSTEM_PROMPT, summary)
 
+        print("\n========== LEVEL 2 SUMMARY ==========")
+        print(summary)
+        print("=====================================")
+
+        result = await _async_llm(LEVEL2_SYSTEM_PROMPT, summary)
+
         print("\n========== LEVEL 2 LLM RESULT ==========")
         print(result)
         print("========================================")
-
+        
         if "error" in result:
             return {"status": "error", "error_message": result["error"], "stop_assessment": True}
 

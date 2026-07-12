@@ -84,7 +84,10 @@ class DynamicDepthForInfrastructureWorkflow(BaseWorkflow):
         )
         graph.add_conditional_edges(
             "level3", _should_stop,
-            {"format_result": "format_result", "continue": "level4"}
+            {
+                "format_result": "format_result",
+                "continue": "format_result"
+            }
         )
         graph.add_conditional_edges(
             "level4", _should_stop,

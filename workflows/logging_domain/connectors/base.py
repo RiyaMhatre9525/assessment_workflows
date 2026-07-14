@@ -22,13 +22,27 @@ from typing import Any
 @dataclass
 class LogSourceInfo:
     """A single logging source detected in VCS config (pipeline/app config)."""
+
+    # Existing fields
     name: str
     path: str
     raw_content: str = ""
+
     ships_to_centralized_system: bool = False
     logs_security_events: bool = False
     logs_login_logout: bool = False
     logs_user_lifecycle_events: bool = False
+
+    # New Level 1 fields
+    storage_encrypted: bool = False
+    integrity_protection_enabled: bool = False
+    alerting_configured: bool = False
+
+    # New Level 3 fields
+    keyword_search_supported: bool = False
+    attack_detection_enabled: bool = False
+    gui_search_enabled: bool = False
+    developer_access_enabled: bool = False
 
 
 @dataclass

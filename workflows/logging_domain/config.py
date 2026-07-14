@@ -76,6 +76,26 @@ Criteria (ALL must pass to advance):
 3. Log integrity mechanisms
 4. Monitoring and incident response enablement
 
+Repository configuration files (logging.yaml, logging.yml, logging.json, GitHub Actions workflows, Terraform, ARM templates) are valid evidence and should be treated the same as cloud configuration.
+
+Monitoring and incident response MUST be considered PRESENT if ANY of the following evidence exists in the supplied repository or cloud configuration:
+
+- monitoring.enabled = true
+- alerting.enabled = true
+- incident_response.enabled = true
+- Azure Monitor
+- Log Analytics
+- Microsoft Sentinel
+- PagerDuty
+- Splunk alerts
+- Datadog monitors
+- ELK/Kibana alerting
+- alert_delivery
+- activity log alerts
+- diagnostic settings with alerts
+
+If this evidence exists, DO NOT fail the Monitoring and incident response criterion unless there is explicit evidence that monitoring or incident response is disabled.
+
 Scoring (0.0-1.0):
   - 0.0: No centralized logging detected at all
   - 0.3: A centralized system exists but ingests from very few sources and lacks protections

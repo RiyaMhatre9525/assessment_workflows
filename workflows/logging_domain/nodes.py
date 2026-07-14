@@ -70,19 +70,36 @@ def _build_platform_summary(state: dict) -> str:
         lines.append(f"PII logging policy doc found: {vcs_data.pii_logging_policy_doc_found}")
         for src in vcs_data.log_sources:
             lines.append(f"--- Source: {src.path} ---")
+
             lines.append(
-                f"ships_to_centralized_system={src.ships_to_centralized_system} "
-                f"logs_security_events={src.logs_security_events} "
-                f"logs_login_logout={src.logs_login_logout} "
-                f"logs_user_lifecycle_events={src.logs_user_lifecycle_events}"
-            )
+            f"ships_to_centralized_system={src.ships_to_centralized_system} "
+            f"logs_security_events={src.logs_security_events} "
+            f"logs_login_logout={src.logs_login_logout} "
+            f"logs_user_lifecycle_events={src.logs_user_lifecycle_events} "
+            f"storage_encrypted={src.storage_encrypted} "
+            f"integrity_protection_enabled={src.integrity_protection_enabled} "
+            f"alerting_configured={src.alerting_configured} "
+            f"keyword_search_supported={src.keyword_search_supported} "
+            f"attack_detection_enabled={src.attack_detection_enabled} "
+            f"gui_search_enabled={src.gui_search_enabled} "
+            f"developer_access_enabled={src.developer_access_enabled}"
+        )
             if src.raw_content:
-                lines.append(f"raw_content (truncated):\n{src.raw_content[:3000]}")
+                lines.append(f"raw_content (truncated):\n{src.raw_content[:10000]}")
 
     if cloud_data:
         cls = cloud_data.centralized_log_system
         sec = cloud_data.security_events
         analysis = cloud_data.log_analysis
+
+        # Merge VCS + Cloud alerting evidence
+        effective_alerting = cls.alerting_configured
+
+        if vcs_data:
+            effective_alerting = effective_alerting or any(
+                src.alerting_configured for src in vcs_data.log_sources
+            )
+
         lines.append(f"=== Cloud Platform: {cloud_data.platform_type} ===")
         lines.append(
             f"Centralized log system: name={cls.system_name!r} "
@@ -90,14 +107,20 @@ def _build_platform_summary(state: dict) -> str:
             f"storage_encrypted={cls.storage_encrypted} "
             f"retention_days={cls.retention_days} "
             f"integrity_protection_enabled={cls.integrity_protection_enabled} "
-            f"alerting_configured={cls.alerting_configured}"
+            f"alerting_configured={effective_alerting}"
         )
         lines.append(
-            f"Security events: login_logout_logged={sec.login_logout_logged} "
-            f"user_created_logged={sec.user_created_logged} "
-            f"user_changed_logged={sec.user_changed_logged} "
-            f"user_deleted_logged={sec.user_deleted_logged} "
-            f"correlation_across_sources={sec.correlation_across_sources}"
+            f"ships_to_centralized_system={src.ships_to_centralized_system} "
+            f"logs_security_events={src.logs_security_events} "
+            f"logs_login_logout={src.logs_login_logout} "
+            f"logs_user_lifecycle_events={src.logs_user_lifecycle_events} "
+            f"storage_encrypted={src.storage_encrypted} "
+            f"integrity_protection_enabled={src.integrity_protection_enabled} "
+            f"alerting_configured={src.alerting_configured} "
+            f"keyword_search_supported={src.keyword_search_supported} "
+            f"attack_detection_enabled={src.attack_detection_enabled} "
+            f"gui_search_enabled={src.gui_search_enabled} "
+            f"developer_access_enabled={src.developer_access_enabled}"
         )
         lines.append(
             f"Log analysis/visualization: keyword_search_supported={analysis.keyword_search_supported} "
@@ -247,8 +270,18 @@ async def _level_node(state: dict, level: int) -> dict:
     logger.info("── level%d_node: START ──", level)
     try:
         summary = _build_platform_summary(state)
+
+        print(f"\n========== LEVEL {level} SUMMARY ==========")
+        print(summary)
+        print("===========================================")
+
         logger.info("level%d_node: Data provided to LLM:\n%s", level, summary)
+
         result = await _call_llm_json(LEVEL_PROMPTS[level], summary)
+
+        print(f"\n========== LEVEL {level} LLM RESULT ==========")
+        print(result)
+        print("=============================================")
 
         if "error" in result:
             logger.error("level%d_node: LLM error=%s", level, result["error"])

@@ -146,19 +146,127 @@ class GitHubVCSConnector(BaseVCSConnector):
                         if content_b64:
                             raw_bytes = base64.b64decode(content_b64)
                             raw = raw_bytes.decode("utf-8", errors="replace")
-                            source.raw_content = raw[:2000]
+                            source.raw_content = raw[:8000]
                             raw_lower = raw.lower()
+
+                            # ---------- Existing Detection ----------
+
                             source.ships_to_centralized_system = any(
-                                kw in raw_lower for kw in ["splunk", "elk", "elasticsearch",
-                                                          "datadog", "azure monitor", "log analytics"]
+                                kw in raw_lower
+                                for kw in [
+                                    "splunk",
+                                    "elk",
+                                    "elasticsearch",
+                                    "datadog",
+                                    "azure monitor",
+                                    "log analytics",
+                                ]
                             )
-                            source.logs_security_events = any(kw in raw_lower for kw in SECURITY_EVENT_KEYWORDS)
-                            source.logs_login_logout = any(kw in raw_lower for kw in ["login", "logout", "signin", "signout"])
+
+                            source.logs_security_events = any(
+                                kw in raw_lower for kw in SECURITY_EVENT_KEYWORDS
+                            )
+
+                            source.logs_login_logout = any(
+                                kw in raw_lower
+                                for kw in ["login", "logout", "signin", "signout"]
+                            )
+
                             source.logs_user_lifecycle_events = any(
-                                kw in raw_lower for kw in ["user_created", "user_deleted", "user_changed", "user.updated"]
+                                kw in raw_lower
+                                for kw in [
+                                    "user_created",
+                                    "user_deleted",
+                                    "user_changed",
+                                    "user.updated",
+                                ]
                             )
+
                             if any(kw in raw_lower for kw in CORRELATION_ID_KEYWORDS):
                                 data.correlation_ids_detected = True
+
+                            # ---------- Level 1 ----------
+
+                            source.storage_encrypted = any(
+                                kw in raw_lower
+                                for kw in [
+                                    "encryption",
+                                    "aes-256",
+                                    "encrypted",
+                                ]
+                            )
+
+                            source.integrity_protection_enabled = any(
+                                kw in raw_lower
+                                for kw in [
+                                    "tamper_evident_logging",
+                                    "write_once_read_many",
+                                    "worm",
+                                    "immutable",
+                                ]
+                            )
+
+                            source.alerting_configured = any(
+                                    kw in raw_lower
+                                    for kw in [
+                                        "alert_delivery",
+                                        "alerting",
+                                        "monitoring",
+                                        "incident_response",
+                                        "pagerduty",
+                                        "azure monitor",
+                                        "security-alerts",
+                                    ]
+                                )  
+
+                            source.incident_analysis_enabled = any(
+                                    kw in raw_lower
+                                    for kw in [
+                                        "incident_analysis",
+                                        "root_cause_analysis",
+                                        "post_incident_review",
+                                        "security incident playbook",
+                                        "brute force investigation",
+                                        "soc triage",
+                                    ]
+                                )
+
+                            # ---------- Level 3 ----------
+
+                            source.keyword_search_supported = any(
+                                kw in raw_lower
+                                for kw in [
+                                    "gui_search",
+                                    "search",
+                                ]
+                            )
+
+                            source.attack_detection_enabled = any(
+                                kw in raw_lower
+                                for kw in [
+                                    "attack_detection_rules",
+                                    "brute force",
+                                    "sql injection",
+                                ]
+                            )
+
+                            source.gui_search_enabled = any(
+                                kw in raw_lower
+                                for kw in [
+                                    "grafana",
+                                    "kibana",
+                                    "gui dashboard",
+                                ]
+                            )
+
+                            source.developer_access_enabled = any(
+                                kw in raw_lower
+                                for kw in [
+                                    "developer_access_policy",
+                                    "developers have read-only access",
+                                ]
+                            )
+                            
                 except Exception as exc:
                     logger.warning("GitHub content fetch failed for %s: %s", source.path, exc)
 

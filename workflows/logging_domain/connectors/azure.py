@@ -79,6 +79,10 @@ class AzureCloudConnector(BaseCloudConnector):
             self._log(f"GET {url}")
             try:
                 resp = await client.get(url, headers=headers)
+                
+                print("Workspace Status:", resp.status_code)
+                print("Workspace Response:", resp.text)
+
                 if resp.status_code == 200:
                     workspaces = resp.json().get("value", [])
                     if workspaces:
@@ -90,8 +94,13 @@ class AzureCloudConnector(BaseCloudConnector):
                             storage_encrypted=True,  # Log Analytics encrypts at rest by default
                             retention_days=props.get("retentionInDays", 0),
                             integrity_protection_enabled=True,
-                            alerting_configured=False,
                         )
+                else:
+                    logger.error(
+                        "Workspace API failed. Status=%s Response=%s",
+                        resp.status_code,
+                         resp.text,
+                    )
             except Exception as exc:
                 logger.warning("AzureCloudConnector workspace fetch failed: %s", exc)
 

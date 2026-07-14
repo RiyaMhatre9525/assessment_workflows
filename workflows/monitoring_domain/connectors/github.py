@@ -18,6 +18,7 @@ GITHUB_API_BASE = "https://api.github.com"
 
 # Filenames/paths that commonly hold monitoring-as-code configuration.
 MONITORING_CONFIG_CANDIDATES = [
+    "monitoring.yaml",
     "prometheus.yml",
     "prometheus.yaml",
     "alertmanager.yml",
@@ -98,7 +99,21 @@ class GitHubConnector(BasePlatformConnector):
                     )
 
             # 2. Broader code search for monitoring keywords not caught above
-            for keyword in ["prometheus", "grafana", "datadog", "alertmanager", "cloudwatch"]:
+            for keyword in [
+                "prometheus",
+                "grafana",
+                "datadog",
+                "alertmanager",
+                "monitor",
+                "metrics",
+                "azure monitor",
+                "application insights",
+                "diagnostic settings",
+                "metric alert",
+                "log analytics",
+                "opentelemetry",
+                "otel",
+            ]:
                 results = await self._code_search(client, repository, keyword)
                 for item in results[:5]:
                     path = item.get("path", "")
@@ -122,7 +137,22 @@ class GitHubConnector(BasePlatformConnector):
                         content = await self._fetch_file(client, repository, path)
                         if content and any(
                             kw in content.lower()
-                            for kw in ["prometheus", "grafana", "datadog", "monitor", "metrics", "alert"]
+                            for kw in [
+                                "prometheus",
+                                "grafana",
+                                "datadog",
+                                "monitor",
+                                "metrics",
+                                "alert",
+                                "azure monitor",
+                                "application insights",
+                                "diagnostic",
+                                "log analytics",
+                                "metric alert",
+                                "terraform",
+                                "az monitor",
+                                "otel",
+                            ]
                         ):
                             data.ci_monitoring_steps.append(
                                 MonitoringConfigFile(name=name, path=path, raw_content=content)

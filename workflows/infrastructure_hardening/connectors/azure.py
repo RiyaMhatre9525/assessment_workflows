@@ -1,10 +1,10 @@
 """
 workflows/infrastructure_hardening/connectors/azure.py
-
+ 
 Azure cloud connector. Collects cloud-infrastructure evidence via the
 Azure Resource Manager (ARM) API and optionally Microsoft Graph, relevant
 to Level 1-5 criteria.
-
+ 
 API calls made per collect():
   ARM:
     - /subscriptions/{sub}/resourceGroups/{rg}/providers/Microsoft.Compute/virtualMachines
@@ -18,32 +18,32 @@ API calls made per collect():
   Graph (optional — graceful skip if ARM token lacks Graph.Policy scope):
     - /v1.0/policies/authenticationMethodsPolicy                               (MFA enforcement state)
 """
-
+ 
 from __future__ import annotations
-
+ 
 import httpx
-
+ 
 from core.logger import get_logger
 from workflows.infrastructure_hardening.connectors.base import (
     BaseCloudConnector,
     PlatformData,
 )
-
+ 
 logger = get_logger(__name__)
-
+ 
 ARM_BASE = "https://management.azure.com"
 ARM_API_VERSION = "2023-09-01"
 GRAPH_BASE = "https://graph.microsoft.com"
-
+ 
 # Privileged Azure built-in role definition IDs (last UUID segment)
 _PRIVILEGED_ROLE_IDS = {
     "8e3af657-a8ff-443c-a75c-2fe8c4bcb635",  # Owner
     "18d7d88d-d35e-4fb5-a5c3-7773c20a72d9",  # User Access Administrator
 }
-
-
+ 
+ 
 class AzureCloudConnector(BaseCloudConnector):
-
+ 
     async def health_check(self) -> bool:
         token = self.credentials.get("access_token", "")
         subscription_id = self.credentials.get("subscription_id", "")
@@ -64,15 +64,15 @@ class AzureCloudConnector(BaseCloudConnector):
         except Exception as exc:
             logger.error("Azure health_check failed with exception: %s", exc, exc_info=True)
             return False
-
+ 
     async def collect(self, repository: str, platform_data: PlatformData) -> PlatformData:  # noqa: PLR0912,PLR0915
         token = self.credentials.get("access_token", "")
         subscription_id = self.credentials.get("subscription_id", "")
         resource_group = self.credentials.get("resource_group", "")
         headers = {"Authorization": f"Bearer {token}"}
-
+ 
         async with httpx.AsyncClient(timeout=20.0) as client:
-
+ 
             # ----------------------------------------------------------------
             # Virtual machines: resource limits, encryption, virtualization,
             # IaC provenance signal via resource tags
@@ -92,7 +92,7 @@ class AzureCloudConnector(BaseCloudConnector):
                     logger.warning("Azure VM fetch returned %s", resp.status_code)
             except Exception as exc:
                 logger.error("Azure VM fetch failed: %s", exc, exc_info=True)
-
+ 
             disk_encrypted = any(
                 vm.get("properties", {}).get("storageProfile", {})
                   .get("osDisk", {}).get("encryptionSettings", {}).get("enabled")
@@ -105,8 +105,11 @@ class AzureCloudConnector(BaseCloudConnector):
             platform_data.infrastructure.resource_limits_enforced = bool(vms) and all(
                 vm.get("properties", {}).get("hardwareProfile", {}).get("vmSize") for vm in vms
             )
-            platform_data.infrastructure.virtualized_environments = len(vms) > 0
-
+            platform_data.infrastructure.virtualized_environments = (
+    platform_data.infrastructure.virtualized_environments
+    or len(vms) > 0
+)
+ 
             iac_detected = any(
                 any(kw in str(vm.get("tags", {})).lower()
                     for kw in ("iac", "terraform", "bicep", "arm-template"))
@@ -115,7 +118,7 @@ class AzureCloudConnector(BaseCloudConnector):
             platform_data.infrastructure.iac_managed = iac_detected
             if iac_detected:
                 platform_data.infrastructure.iac_tool = "detected via resource tags"
-
+ 
             # ----------------------------------------------------------------
             # Network Security Groups: isolation + egress filtering
             # ----------------------------------------------------------------
@@ -134,7 +137,7 @@ class AzureCloudConnector(BaseCloudConnector):
                     logger.warning("Azure NSG fetch returned %s", resp.status_code)
             except Exception as exc:
                 logger.error("Azure NSG fetch failed: %s", exc, exc_info=True)
-
+ 
             has_deny_egress_rule = False
             for nsg in nsgs:
                 for rule in nsg.get("properties", {}).get("securityRules", []):
@@ -143,7 +146,7 @@ class AzureCloudConnector(BaseCloudConnector):
                         has_deny_egress_rule = True
             platform_data.network.egress_filtering_enabled = has_deny_egress_rule
             platform_data.network.network_isolation_enabled = len(nsgs) > 0
-
+ 
             # ----------------------------------------------------------------
             # Application Gateway WAF policy
             # ----------------------------------------------------------------
@@ -163,7 +166,7 @@ class AzureCloudConnector(BaseCloudConnector):
                     logger.warning("Azure WAF fetch returned %s", resp.status_code)
             except Exception as exc:
                 logger.error("Azure WAF fetch failed: %s", exc, exc_info=True)
-
+ 
             if wafs:
                 mode_raw = wafs[0].get("properties", {}).get("policySettings", {}).get("mode", "")
                 if mode_raw == "Detection":
@@ -176,7 +179,7 @@ class AzureCloudConnector(BaseCloudConnector):
                     "anomaly" in str(rule).lower() or "ml" in str(rule).lower()
                     for rule in custom_rules
                 )
-
+ 
             # ----------------------------------------------------------------
             # Recovery Services vaults: automated backups
             # ----------------------------------------------------------------
@@ -195,9 +198,12 @@ class AzureCloudConnector(BaseCloudConnector):
                     logger.warning("Azure backup vault fetch returned %s", resp.status_code)
             except Exception as exc:
                 logger.error("Azure backup vault fetch failed: %s", exc, exc_info=True)
-
-            platform_data.backup.automated_backups_enabled = len(vaults) > 0
-
+ 
+            platform_data.backup.automated_backups_enabled = (
+    platform_data.backup.automated_backups_enabled
+    or len(vaults) > 0
+)
+ 
             # ----------------------------------------------------------------
             # RBAC role assignments: admin count at subscription scope (Level 1)
             # Counts Owner + User Access Administrator assignments as "admin".
@@ -228,7 +234,7 @@ class AzureCloudConnector(BaseCloudConnector):
                     logger.warning("Azure RBAC fetch returned %s", resp.status_code)
             except Exception as exc:
                 logger.error("Azure RBAC fetch failed: %s", exc, exc_info=True)
-
+ 
             # ----------------------------------------------------------------
             # App Services: edge HTTPS-only enforcement (Level 1)
             # Falls back to WAF presence as proxy if no App Services found.
@@ -260,7 +266,7 @@ class AzureCloudConnector(BaseCloudConnector):
                     logger.warning("Azure App Service fetch returned %s", resp.status_code)
             except Exception as exc:
                 logger.error("Azure App Service fetch failed: %s", exc, exc_info=True)
-
+ 
             # ----------------------------------------------------------------
             # Resource groups: test/production environment separation (Level 2)
             # Detects naming patterns that indicate separate env lifecycle.
@@ -290,7 +296,7 @@ class AzureCloudConnector(BaseCloudConnector):
                     logger.warning("Azure resource group list returned %s", resp.status_code)
             except Exception as exc:
                 logger.error("Azure resource group list failed: %s", exc, exc_info=True)
-
+ 
             # ----------------------------------------------------------------
             # Microsoft Sentinel: dedicated security account proxy (Level 2)
             # Sentinel presence indicates a dedicated security operations tool/
@@ -319,7 +325,7 @@ class AzureCloudConnector(BaseCloudConnector):
                     logger.warning("Azure Sentinel check returned %s", resp.status_code)
             except Exception as exc:
                 logger.error("Azure Sentinel check failed: %s", exc, exc_info=True)
-
+ 
             # ----------------------------------------------------------------
             # Optional: Microsoft Graph — MFA authentication methods policy
             # (Level 1: MFA for Admins / Level 2: Universal MFA)
@@ -362,7 +368,7 @@ class AzureCloudConnector(BaseCloudConnector):
             except Exception as exc:
                 logger.warning("Graph MFA policy check skipped: %s", exc)
                 platform_data.raw_metadata["graph_mfa_policy_state"] = "not_accessible"
-
+ 
             # ----------------------------------------------------------------
             # Aggregate raw metadata counts
             # ----------------------------------------------------------------
@@ -370,7 +376,7 @@ class AzureCloudConnector(BaseCloudConnector):
             platform_data.raw_metadata["nsg_count"] = len(nsgs)
             platform_data.raw_metadata["waf_policy_count"] = len(wafs)
             platform_data.raw_metadata["backup_vault_count"] = len(vaults)
-
+ 
         platform_data.cloud_type = "azure"
         platform_data.api_call_log.extend(self._api_call_log)
         return platform_data

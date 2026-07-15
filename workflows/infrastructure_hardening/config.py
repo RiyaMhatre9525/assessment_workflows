@@ -82,6 +82,13 @@ Criteria (ALL must pass to advance):
 2. Simple Access Control: Documentation of annual user privilege reviews; admin count <= 5 per system.
 3. Edge Encryption in Transit: Encryption at network edge using secure protocols (HTTPS); credential sniffing prevention.
 
+IMPORTANT: Only evaluate these exact 3 criteria listed above. Do NOT reference, score, or
+create failed_criteria entries for concepts belonging to other levels (e.g. internal mTLS,
+encryption at rest, egress filtering, WAF, chaos engineering). Those are Level 2-5 criteria
+and are strictly out of scope for this Level 1 assessment. Each criterion name in
+passed_criteria and failed_criteria must exactly match one of the 3 names listed above —
+never duplicate a criterion name across both lists, and never invent a new criterion name.
+
 Scoring (0.0-1.0):
   - 0.0: Nothing detected — no MFA, no access review, no edge encryption.
   - 0.3: Exists but mostly missing (e.g. MFA enforced for some but not all admins).

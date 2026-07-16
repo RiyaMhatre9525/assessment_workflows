@@ -255,6 +255,28 @@ async def _run_level_node(state: dict, level: int) -> dict:
             result.get("score"),
             json.dumps(result, indent=2),
         )
+        
+        if (
+            level == 2
+            and platform_data.raw_metadata.get("graph_mfa_policy_state")
+            == "not_accessible_no_graph_scope"
+        ):
+            logger.info(
+            "FAILED CRITERIA BEFORE FILTER: %s",
+            json.dumps(result.get("failed_criteria", []), indent=2),
+        )
+
+            result["failed_criteria"] = [
+                item
+                for item in result.get("failed_criteria", [])
+                if item.get("name") != "Universal MFA"
+            ]
+
+            result["recommendations"] = [
+                item
+                for item in result.get("recommendations", [])
+                if item.get("gap") != "Universal MFA"
+            ]
 
         if "error" in result:
             return {

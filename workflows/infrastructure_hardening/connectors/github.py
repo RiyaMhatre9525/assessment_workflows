@@ -134,7 +134,7 @@ class GitHubConnector(BaseVCSConnector):
                     exc_info=True,
                 )
  
-                            # --- HTTPS enforcement documentation evidence ---
+            # --- HTTPS enforcement documentation evidence ---
             https_doc_url = (
                 f"{GITHUB_API_BASE}/repos/{repository}"
                 f"/contents/docs/https-enforcement.md?ref={branch}"
@@ -166,45 +166,80 @@ class GitHubConnector(BaseVCSConnector):
                     exc,
                     exc_info=True,
                 )
- 
-                             # --- Infrastructure as Code (Terraform) evidence ---
-                terraform_url = (
-                    f"{GITHUB_API_BASE}/repos/{repository}"
-                    f"/contents/infra/logging/main.tf?ref={branch}"
+
+            # --- Virtualized environment documentation evidence ---
+            virtualized_doc_url = (
+                f"{GITHUB_API_BASE}/repos/{repository}"
+                f"/contents/docs/virtualized-environments.md?ref={branch}"
+            )
+            self._log(f"GET {virtualized_doc_url}")
+
+            try:
+                virtualized_doc_resp = await client.get(
+                    virtualized_doc_url,
+                    headers=headers,
                 )
-                self._log(f"GET {terraform_url}")
 
-                try:
-                    terraform_resp = await client.get(
-                        terraform_url,
-                        headers=headers,
+                logger.info(
+                    "Virtualized file check | status=%s | body=%s",
+                    virtualized_doc_resp.status_code,
+                    virtualized_doc_resp.text,
+                )
+
+                if virtualized_doc_resp.status_code == 200:
+                    platform_data.infrastructure.virtualized_environments = True
+                    platform_data.raw_metadata["virtualized_environment_source"] = (
+                        "docs/virtualized-environments.md"
                     )
-
                     logger.info(
-                        "Terraform file check | status=%s | body=%s",
-                        terraform_resp.status_code,
-                        terraform_resp.text,
+                        "GitHub virtualized environment documentation detected"
+                    )
+                else:
+                    platform_data.raw_metadata["virtualized_environment_source"] = (
+                        "not_detected"
                     )
 
-                    if terraform_resp.status_code == 200:
-                        platform_data.infrastructure.iac_managed = True
-                        platform_data.infrastructure.iac_tool = "Terraform"
-                        platform_data.raw_metadata["iac_source"] = (
-                            "infra/logging/main.tf"
-                        )
-                        logger.info(
-                            "GitHub Terraform infrastructure detected"
-                        )
-                    else:
-                        platform_data.raw_metadata["iac_source"] = "not_detected"
+            except Exception as exc:
+                logger.error(
+                    "GitHub virtualized environment documentation fetch failed: %s",
+                    exc,
+                    exc_info=True,
+                )
 
-                except Exception as exc:
-                    logger.error(
-                        "GitHub Terraform detection failed: %s",
-                        exc,
-                        exc_info=True,
-                    )
-                    # --- Automated backup documentation evidence ---
+            # --- Infrastructure as Code (Terraform) evidence ---
+            terraform_url = (
+                f"{GITHUB_API_BASE}/repos/{repository}"
+                f"/contents/infra/logging/main.tf?ref={branch}"
+            )
+            self._log(f"GET {terraform_url}")
+
+            try:
+                terraform_resp = await client.get(
+                    terraform_url,
+                    headers=headers,
+                )
+
+                logger.info(
+                    "Terraform file check | status=%s | body=%s",
+                    terraform_resp.status_code,
+                    terraform_resp.text,
+                )
+
+                if terraform_resp.status_code == 200:
+                    platform_data.infrastructure.iac_managed = True
+                    platform_data.infrastructure.iac_tool = "Terraform"
+                    platform_data.raw_metadata["iac_source"] = "infra/logging/main.tf"
+                    logger.info("GitHub Terraform infrastructure detected")
+                else:
+                    platform_data.raw_metadata["iac_source"] = "not_detected"
+
+            except Exception as exc:
+                logger.error(
+                    "GitHub Terraform detection failed: %s",
+                    exc,
+                    exc_info=True,
+                )
+            # --- Automated backup documentation evidence ---
             backup_doc_url = (
                 f"{GITHUB_API_BASE}/repos/{repository}"
                 f"/contents/docs/backup-policy.md?ref={branch}"

@@ -94,8 +94,14 @@ class AzureCloudConnector(BaseCloudConnector):
                 logger.error("Azure VM fetch failed: %s", exc, exc_info=True)
  
             disk_encrypted = any(
-                vm.get("properties", {}).get("storageProfile", {})
-                  .get("osDisk", {}).get("encryptionSettings", {}).get("enabled")
+                (
+                    vm.get("properties", {}).get("storageProfile", {})
+                    .get("osDisk", {}).get("encryptionSettings", {}).get("enabled")
+                )
+                or (
+                    vm.get("properties", {}).get("storageProfile", {})
+                    .get("osDisk", {}).get("managedDisk", {}).get("id")
+                )
                 for vm in vms
             )
             platform_data.encryption.encryption_at_rest_enabled = disk_encrypted
@@ -115,7 +121,9 @@ class AzureCloudConnector(BaseCloudConnector):
                     for kw in ("iac", "terraform", "bicep", "arm-template"))
                 for vm in vms
             )
-            platform_data.infrastructure.iac_managed = iac_detected
+            platform_data.infrastructure.iac_managed = (
+                platform_data.infrastructure.iac_managed or iac_detected
+            )
             if iac_detected:
                 platform_data.infrastructure.iac_tool = "detected via resource tags"
  

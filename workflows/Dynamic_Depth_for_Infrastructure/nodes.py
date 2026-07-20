@@ -194,6 +194,17 @@ async def level2_node(state: dict) -> dict:
             f"  - limitation_note: {cc.limitation_note}\n"
         )
         result = await _async_llm(LEVEL2_SYSTEM_PROMPT, summary)
+
+        print("\n========== LEVEL 2 SUMMARY ==========")
+        print(summary)
+        print("=====================================")
+
+        result = await _async_llm(LEVEL2_SYSTEM_PROMPT, summary)
+
+        print("\n========== LEVEL 2 LLM RESULT ==========")
+        print(result)
+        print("========================================")
+        
         if "error" in result:
             return {"status": "error", "error_message": result["error"], "stop_assessment": True}
 
@@ -245,6 +256,11 @@ async def level3_node(state: dict) -> dict:
             f"  - limitation_note: {wp.limitation_note}\n"
         )
         result = await _async_llm(LEVEL3_SYSTEM_PROMPT, summary)
+
+        print("\n========== LEVEL 3 LLM RESULT ==========")
+        print(result)
+        print("========================================")
+
         if "error" in result:
             return {"status": "error", "error_message": result["error"], "stop_assessment": True}
 
@@ -377,14 +393,22 @@ async def format_result_node(state: dict) -> dict:
         maturity_level = 0
         final_score = 0.0
     else:
-        passed_levels = [lvl for lvl in ALL_LEVELS if lvl in level_results and level_results[lvl].get("passed")]
-        maturity_level = max(passed_levels) if passed_levels else 0
+        passed_levels = [
+            lvl
+            for lvl in ALL_LEVELS
+            if lvl in level_results and level_results[lvl].get("passed")
+        ]
+
         if failed_at_level is not None:
+            maturity_level = failed_at_level
             final_score = level_results[failed_at_level].get("score", 0.0)
-        elif maturity_level:
-            final_score = level_results[maturity_level].get("score", 0.0)
         else:
-            final_score = 0.0
+            maturity_level = max(passed_levels) if passed_levels else 0
+
+            if maturity_level:
+                final_score = level_results[maturity_level].get("score", 0.0)
+            else:
+                final_score = 0.0
 
     all_passed_checks = []
     all_failed_checks = []

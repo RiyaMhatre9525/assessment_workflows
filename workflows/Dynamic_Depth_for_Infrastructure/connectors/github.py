@@ -47,9 +47,24 @@ NETWORK_SEGMENTATION_KEYWORDS = [
 ]
 
 CLOUD_CONFIG_KEYWORDS = [
-    "checkov", "tfsec", "prowler", "defender", "security-center",
-    "azure-policy", "iam-scan", "storage-scan", "encryption",
-    "misconfig", "cloud-config", "compliance-scan",
+    "checkov",
+    "tfsec",
+    "prowler",
+    "defender",
+    "security-center",
+    "azure-policy",
+    "azure monitor",
+    "activity logs",
+    "diagnostic settings",
+    "storage public access",
+    "network security group",
+    "nsg",
+    "iam-scan",
+    "storage-scan",
+    "encryption",
+    "misconfig",
+    "cloud-config",
+    "compliance-scan",
 ]
 
 CONTAINER_SECURITY_KEYWORDS = [
@@ -190,13 +205,34 @@ class GitHubConnector(BaseInfraSCMConnector):
         evidence = CloudConfigurationEvidence()
         tools = [kw for kw in CLOUD_CONFIG_KEYWORDS if kw in text]
         if tools:
-            evidence.tools_detected = tools
-            evidence.misconfiguration_scan_found = True
-            evidence.storage_config_checked = "storage-scan" in tools
-            evidence.iam_config_checked = "iam-scan" in tools
-            evidence.encryption_configured = "encryption" in tools
-            evidence.logging_enabled = "azure-policy" in tools or "compliance-scan" in tools
-            evidence.monitoring_enabled = "defender" in tools or "security-center" in tools
+            evidence.storage_config_checked = (
+                "storage-scan" in tools
+                or "storage public access" in text
+            )
+            evidence.iam_config_checked = (
+                "iam-scan" in tools
+            )
+            evidence.encryption_configured = (
+                "encryption" in tools
+            )
+            evidence.logging_enabled = any(
+                k in text
+                for k in [
+                    "activity logs",
+                    "diagnostic settings",
+                    "diagnostic logs",
+                    "logging enabled",
+                ]
+            )
+            evidence.monitoring_enabled = any(
+                k in text
+                for k in [
+                    "azure monitor",
+                    "defender",
+                    "security-center",
+                    "monitoring enabled",
+                ]
+            )   
             evidence.examples = tools[:5]
         else:
             evidence.limitation_note = (

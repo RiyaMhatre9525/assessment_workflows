@@ -294,12 +294,32 @@ async def collect_platform_data_node(state: dict) -> dict:
         if cloud_connector_cls is not None:
             try:
                 cloud_connector = cloud_connector_cls(credentials)
-                if await cloud_connector.health_check():
-                    cloud_data = await cloud_connector.collect(credentials.get("subscription_id", ""))
+
+                health = await cloud_connector.health_check()
+                print("CLOUD HEALTH:", health)
+
+                if health:
+                    cloud_data = await cloud_connector.collect(
+                        credentials.get("subscription_id", "")
+                    )
+
+                    print("========== CLOUD DATA ==========")
+                    print(cloud_data)
+
+                    print("========== DETECTED SIGNALS ==========")
+                    print(cloud_data.detected_signals if cloud_data else None)
+
                 else:
-                    logger.warning("Cloud health_check failed for platform: %s", cloud_platform)
+                    logger.warning(
+                        "Cloud health_check failed for platform: %s",
+                        cloud_platform,
+                    )
+
             except Exception as exc:
-                logger.warning("Cloud data collection skipped due to error: %s", exc)
+                logger.warning(
+                    "Cloud data collection skipped due to error: %s",
+                    exc,
+                )
     else:
         logger.warning(
             "No cloud_platform supplied — Level 2/3/4 criteria that depend on cloud "

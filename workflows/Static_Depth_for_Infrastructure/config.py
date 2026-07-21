@@ -1,4 +1,4 @@
-""
+"""
 Configuration constants for the Static_Depth_for_Infrastructure workflow:
 scoring ranges, level descriptions, canonical criteria names, and the LLM
 system prompt used to assess each level's controls.
@@ -174,3 +174,5 @@ Scoring (3.0-4.0):
   3.33 / 3.67: proportional to 1 or 2 of 3 criteria met.
   4.0: Full Level 4 pass — all three criteria met.
 """ + _JSON_SCHEMA_SUFFIX.format(level=4, min_score="3.0", max_score="4.0")
+ 
+ 

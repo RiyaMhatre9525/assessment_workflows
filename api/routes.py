@@ -18,7 +18,6 @@ from workflows.application_hardening.graph import ApplicationHardeningWorkflow
 from workflows.patch_management.graph import PatchManagementWorkflow
 from workflows.Dynamic_Depth_for_Infrastructure.graph import DynamicDepthForInfrastructureWorkflow
 from workflows.Static_Depth_for_Infrastructure.graph import StaticDepthForInfrastructureWorkflow
-from workflows.monitoring_domain.graph import MonitoringWorkflow
 
 
 
@@ -33,7 +32,6 @@ WORKFLOWS: Dict[str, object] = {
     "patch_management": PatchManagementWorkflow(), 
     "Dynamic_Depth_for_Infrastructure": DynamicDepthForInfrastructureWorkflow(),
     "Static_Depth_for_Infrastructure": StaticDepthForInfrastructureWorkflow(),
-    "monitoring_domain": MonitoringWorkflow(),
 }
 
 router = APIRouter(prefix="/api", tags=["Workflows"])
